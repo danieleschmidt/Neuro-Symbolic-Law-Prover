@@ -636,14 +636,14 @@ action_plan = impact_analyzer.generate_action_plan(
 ```bibtex
 @inproceedings{neuro_symbolic_law2025,
   title={Neuro-Symbolic Reasoning for Automated Legal Compliance Verification},
-  author={Your Name et al.},
+  author={Daniel Schmidt},
   booktitle={International Conference on AI and Law},
   year={2025}
 }
 
 @article{smt_legal_reasoning2024,
   title={SMT-based Verification of Data Protection Regulations},
-  author={Your Team},
+  author={Daniel Schmidt},
   journal={Artificial Intelligence and Law},
   year={2024}
 }
