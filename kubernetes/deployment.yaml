@@ -1,0 +1,137 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: neuro-law-api
+  labels:
+    app: neuro-law-api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: neuro-law-api
+  template:
+    metadata:
+      labels:
+        app: neuro-law-api
+    spec:
+      containers:
+      - name: api
+        image: neuro-law:latest
+        ports:
+        - containerPort: 8000
+        env:
+        - name: PYTHONPATH
+          value: "/app/src"
+        - name: LOG_LEVEL
+          value: "INFO"
+        - name: MAX_WORKERS
+          value: "4"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        volumeMounts:
+        - name: contracts
+          mountPath: /app/contracts
+          readOnly: true
+        - name: logs
+          mountPath: /app/logs
+      volumes:
+      - name: contracts
+        configMap:
+          name: contract-samples
+      - name: logs
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: neuro-law-api-service
+spec:
+  selector:
+    app: neuro-law-api
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 8000
+  type: LoadBalancer
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: neuro-law-ingress
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+spec:
+  tls:
+  - hosts:
+    - api.neuro-law.example.com
+    secretName: neuro-law-tls
+  rules:
+  - host: api.neuro-law.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: neuro-law-api-service
+            port:
+              number: 80
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: contract-samples
+data:
+  sample.txt: |
+    SAMPLE DATA PROCESSING AGREEMENT
+    
+    This agreement demonstrates the capabilities of the
+    Neuro-Symbolic Law Prover system.
+    
+    1. Personal data shall be processed lawfully and transparently.
+    2. Data collection is limited to necessary purposes.
+    3. Data subjects have rights to access their data.
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: neuro-law-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: neuro-law-api
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80

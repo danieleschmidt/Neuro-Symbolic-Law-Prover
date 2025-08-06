@@ -1,0 +1,27 @@
+apiVersion: v2
+name: neuro-symbolic-law-prover
+description: AI-powered legal compliance verification system
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - legal-tech
+  - ai
+  - compliance
+  - gdpr
+  - ai-act
+home: https://github.com/danieleschmidt/Photon-Neuromorphics-SDK
+sources:
+  - https://github.com/danieleschmidt/Photon-Neuromorphics-SDK
+maintainers:
+  - name: Daniel Schmidt
+    email: daniel@terragonlabs.ai
+dependencies:
+  - name: redis
+    version: "17.3.7"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: redis.enabled
+  - name: postgresql
+    version: "12.1.2"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: postgresql.enabled
