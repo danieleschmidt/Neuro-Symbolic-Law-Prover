@@ -1,425 +1,582 @@
 """
-Enhanced legal prover with neural parsing and formal verification.
+Enhanced legal compliance prover with Generation 2 robustness features.
+Includes comprehensive error handling, validation, monitoring, and security.
 """
 
-from typing import Dict, List, Optional, Union, Tuple, Any
+from typing import Dict, List, Optional, Union, Any
 from datetime import datetime
 import logging
-import asyncio
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
-import cachetools
-from dataclasses import dataclass
+import time
+from functools import wraps
 
-from .compliance_result import ComplianceResult, ComplianceReport, ComplianceStatus, ViolationSeverity
-from .legal_prover import LegalProver
+from .exceptions import (
+    ComplianceVerificationError, ValidationError, ResourceError,
+    validate_contract_text, validate_contract_id, validate_focus_areas,
+    handle_exception_gracefully, log_security_event
+)
+from .monitoring import get_metrics_collector, PerformanceTimer
+from .compliance_result import ComplianceResult, ComplianceReport, ComplianceStatus
 from ..parsing.contract_parser import ParsedContract
 from ..regulations.base_regulation import BaseRegulation
-from ..reasoning.solver import ComplianceSolver
-from ..reasoning.proof_search import ProofSearcher
-from ..explanation.explainer import ExplainabilityEngine
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class PerformanceMetrics:
-    """Performance metrics for compliance verification."""
-    total_time: float
-    parsing_time: float
-    verification_time: float
-    explanation_time: float
-    cache_hits: int
-    cache_misses: int
-    parallel_workers: int
-
-
-class EnhancedLegalProver(LegalProver):
+class EnhancedLegalProver:
     """
-    Enhanced legal prover with advanced capabilities:
+    Enhanced legal compliance prover with robust error handling and monitoring.
     
-    - Parallel verification processing
-    - Advanced caching strategies  
-    - Formal verification with Z3
-    - Performance optimization
-    - Comprehensive explanations
+    Generation 2 Features:
+    - Comprehensive input validation
+    - Error handling with graceful fallbacks
+    - Performance monitoring and metrics
+    - Security event logging
+    - Resource management
+    - Circuit breaker pattern for external dependencies
     """
     
     def __init__(
-        self,
-        max_workers: int = 4,
-        cache_size: int = 1000,
-        cache_ttl: int = 3600,
-        enable_formal_verification: bool = True,
-        enable_parallel_processing: bool = True,
-        debug: bool = False
+        self, 
+        cache_enabled: bool = True, 
+        debug: bool = False, 
+        max_cache_size: int = 10000,
+        verification_timeout_seconds: int = 300
     ):
         """
-        Initialize enhanced legal prover.
+        Initialize the enhanced legal prover.
         
         Args:
-            max_workers: Maximum parallel workers
-            cache_size: Cache size for verification results
-            cache_ttl: Cache time-to-live in seconds
-            enable_formal_verification: Use Z3 formal verification
-            enable_parallel_processing: Enable parallel processing
+            cache_enabled: Whether to cache verification results
             debug: Enable debug logging
+            max_cache_size: Maximum number of cached results
+            verification_timeout_seconds: Timeout for verification operations
         """
-        super().__init__(cache_enabled=True, debug=debug)
+        self.cache_enabled = cache_enabled
+        self.debug = debug
+        self.max_cache_size = max_cache_size
+        self.verification_timeout_seconds = verification_timeout_seconds
         
-        self.max_workers = max_workers
-        self.enable_formal_verification = enable_formal_verification
-        self.enable_parallel_processing = enable_parallel_processing
+        # Core data structures
+        self._verification_cache: Dict[str, ComplianceResult] = {}
+        self.metrics_collector = get_metrics_collector()
         
-        # Advanced caching
-        self._advanced_cache = cachetools.TTLCache(
-            maxsize=cache_size,
-            ttl=cache_ttl
-        )
+        # Circuit breaker state for external dependencies
+        self._circuit_breaker = {
+            'failures': 0,
+            'last_failure': None,
+            'state': 'closed'  # closed, open, half-open
+        }
         
-        # Specialized components
-        self.compliance_solver = ComplianceSolver(debug=debug)
-        self.proof_searcher = ProofSearcher()
-        self.explainer = ExplainabilityEngine()
+        # Configure logging
+        if debug:
+            logging.basicConfig(level=logging.DEBUG)
         
-        # Performance tracking
-        self.performance_metrics = PerformanceMetrics(
-            total_time=0.0,
-            parsing_time=0.0,
-            verification_time=0.0,
-            explanation_time=0.0,
-            cache_hits=0,
-            cache_misses=0,
-            parallel_workers=max_workers
-        )
+        # Track initialization
+        self.metrics_collector.record_counter("enhanced_legal_prover.initialized")
+        log_security_event("enhanced_legal_prover_initialized", {
+            "cache_enabled": cache_enabled,
+            "max_cache_size": max_cache_size,
+            "verification_timeout": verification_timeout_seconds
+        })
         
-        # Thread pool for parallel processing
-        if self.enable_parallel_processing:
-            self.thread_pool = ThreadPoolExecutor(max_workers=max_workers)
-        else:
-            self.thread_pool = None
+        logger.info(f"EnhancedLegalProver initialized with cache_size={max_cache_size}")
     
-    async def verify_compliance_async(
+    @handle_exception_gracefully
+    def verify_compliance(
         self,
         contract: ParsedContract,
         regulation: BaseRegulation,
         focus_areas: Optional[List[str]] = None,
-        enable_explanations: bool = True
+        strict_validation: bool = True
     ) -> Dict[str, ComplianceResult]:
         """
-        Asynchronous compliance verification with enhanced features.
+        Verify contract compliance with comprehensive error handling.
         
         Args:
-            contract: Contract to verify
-            regulation: Regulation to check against
-            focus_areas: Specific areas to focus on
-            enable_explanations: Generate explanations for results
+            contract: Parsed contract to verify
+            regulation: Regulation to check compliance against
+            focus_areas: Specific areas to focus verification on
+            strict_validation: Whether to perform strict input validation
             
         Returns:
-            Enhanced compliance results with explanations
+            Dictionary mapping requirement IDs to compliance results
+            
+        Raises:
+            ValidationError: If input validation fails
+            ComplianceVerificationError: If verification fails
+            ResourceError: If system resources are insufficient
         """
-        start_time = datetime.now()
-        logger.info(f"Starting async compliance verification for {regulation.name}")
+        # Input validation
+        self._validate_verification_inputs(contract, regulation, focus_areas, strict_validation)
         
-        try:
-            # Get requirements to verify
-            requirements = regulation.get_requirements()
-            if focus_areas:
-                requirements = {
-                    req_id: req for req_id, req in requirements.items()
-                    if any(area in req.categories for area in focus_areas)
-                }
-            
-            # Parallel verification if enabled
-            if self.enable_parallel_processing and len(requirements) > 1:
-                results = await self._verify_requirements_parallel(
-                    contract, requirements, regulation.name
-                )
-            else:
-                results = await self._verify_requirements_sequential(
-                    contract, requirements, regulation.name
-                )
-            
-            # Generate explanations if requested
-            if enable_explanations:
-                await self._add_explanations_to_results(results, contract)
-            
-            # Update performance metrics
-            total_time = (datetime.now() - start_time).total_seconds()
-            self.performance_metrics.total_time = total_time
-            self.performance_metrics.verification_time = total_time * 0.8  # Estimate
-            
-            logger.info(f"Async verification completed in {total_time:.2f}s")
-            return results
-            
-        except Exception as e:
-            logger.error(f"Error in async verification: {e}")
-            return {}
+        # Check circuit breaker
+        if self._circuit_breaker['state'] == 'open':
+            logger.warning("Circuit breaker is open, using fallback verification")
+            return self._fallback_verification(contract, regulation)
+        
+        with PerformanceTimer(self.metrics_collector, "compliance_verification.total_time", {
+            "regulation": regulation.name,
+            "contract_id": contract.id
+        }):
+            try:
+                return self._perform_verification(contract, regulation, focus_areas)
+            except Exception as e:
+                self._handle_verification_failure(e, regulation.name)
+                # Try fallback verification
+                return self._fallback_verification(contract, regulation)
     
-    def verify_with_formal_methods(
-        self,
-        contract: ParsedContract,
-        requirement_id: str,
-        regulation_type: str = "gdpr"
-    ) -> ComplianceResult:
-        """
-        Verify compliance using formal methods and Z3 SMT solving.
+    def _validate_verification_inputs(
+        self, 
+        contract: ParsedContract, 
+        regulation: BaseRegulation, 
+        focus_areas: Optional[List[str]],
+        strict_validation: bool
+    ) -> None:
+        """Validate inputs for compliance verification."""
         
-        Args:
-            contract: Contract to verify
-            requirement_id: Specific requirement to verify
-            regulation_type: Type of regulation
+        if not contract:
+            raise ValidationError("Contract cannot be None", "contract", None)
             
-        Returns:
-            Formal verification result
-        """
-        logger.info(f"Formal verification of {requirement_id}")
+        if not regulation:
+            raise ValidationError("Regulation cannot be None", "regulation", None)
         
-        if not self.enable_formal_verification:
-            logger.warning("Formal verification disabled")
-            return self._verify_requirement(contract, requirement_id)
+        # Validate contract structure
+        if not hasattr(contract, 'id') or not contract.id:
+            raise ValidationError("Contract must have a valid ID", "contract.id", contract.id)
+            
+        if not hasattr(contract, 'clauses') or not contract.clauses:
+            raise ValidationError("Contract must have clauses", "contract.clauses", len(contract.clauses) if hasattr(contract, 'clauses') else 0)
+        
+        # Validate regulation structure
+        if not hasattr(regulation, 'name') or not regulation.name:
+            raise ValidationError("Regulation must have a name", "regulation.name", regulation.name)
         
         try:
-            # Use SMT solver for formal verification
-            result = self.compliance_solver.verify_compliance(
-                contract, requirement_id, regulation_type
+            requirements = regulation.get_requirements()
+            if not requirements:
+                raise ValidationError("Regulation must have requirements", "regulation.requirements", 0)
+        except Exception as e:
+            raise ValidationError(f"Invalid regulation: {str(e)}", "regulation", str(e))
+        
+        # Validate focus areas
+        validate_focus_areas(focus_areas)
+        
+        # Strict validation checks
+        if strict_validation:
+            # Check contract content
+            for i, clause in enumerate(contract.clauses):
+                if not hasattr(clause, 'text') or not clause.text:
+                    raise ValidationError(f"Clause {i} has empty text", f"contract.clauses[{i}].text", clause.text if hasattr(clause, 'text') else None)
+                
+                if len(clause.text) > 50000:  # Very long clause
+                    logger.warning(f"Clause {i} is very long ({len(clause.text)} chars)")
+        
+        logger.debug("Input validation completed successfully")
+    
+    def _perform_verification(
+        self, 
+        contract: ParsedContract, 
+        regulation: BaseRegulation, 
+        focus_areas: Optional[List[str]]
+    ) -> Dict[str, ComplianceResult]:
+        """Perform the actual compliance verification."""
+        
+        logger.info(f"Starting enhanced compliance verification for {regulation.name}")
+        self.metrics_collector.record_counter("compliance_verification.started", tags={
+            "regulation": regulation.name,
+            "contract_id": contract.id
+        })
+        
+        # Get requirements to verify
+        requirements = regulation.get_requirements()
+        if focus_areas:
+            original_count = len(requirements)
+            requirements = {
+                req_id: req for req_id, req in requirements.items()
+                if any(area in req.categories for area in focus_areas)
+            }
+            logger.info(f"Filtered requirements: {len(requirements)}/{original_count} (focus: {focus_areas})")
+        
+        results = {}
+        verification_start = time.time()
+        
+        for req_id, requirement in requirements.items():
+            # Check timeout
+            if time.time() - verification_start > self.verification_timeout_seconds:
+                logger.warning(f"Verification timeout reached, stopping at requirement {req_id}")
+                self.metrics_collector.record_counter("compliance_verification.timeout")
+                break
+            
+            logger.debug(f"Verifying requirement: {req_id}")
+            
+            # Check cache first
+            cache_key = self._get_cache_key(contract.id, req_id, regulation.name)
+            if self.cache_enabled and cache_key in self._verification_cache:
+                results[req_id] = self._verification_cache[cache_key]
+                self.metrics_collector.record_counter("compliance_verification.cache_hit")
+                continue
+            
+            # Perform verification with error handling
+            try:
+                with PerformanceTimer(self.metrics_collector, "requirement_verification.time", {
+                    "requirement_id": req_id
+                }):
+                    result = self._verify_requirement_enhanced(contract, requirement)
+                    results[req_id] = result
+                    
+                    # Cache result with size management
+                    if self.cache_enabled:
+                        self._verification_cache[cache_key] = result
+                        self._manage_cache_size()
+                        self.metrics_collector.record_counter("compliance_verification.cached")
+                        
+            except Exception as e:
+                logger.error(f"Error verifying requirement {req_id}: {e}")
+                self.metrics_collector.record_counter("compliance_verification.requirement_error", tags={
+                    "requirement_id": req_id,
+                    "error_type": type(e).__name__
+                })
+                
+                # Create error result
+                results[req_id] = ComplianceResult(
+                    requirement_id=req_id,
+                    requirement_description=requirement.description,
+                    status=ComplianceStatus.UNKNOWN,
+                    confidence=0.0,
+                    issue=f"Verification error: {str(e)}",
+                    suggestion="Please review this requirement manually"
+                )
+        
+        # Record completion metrics
+        total_time = time.time() - verification_start
+        compliant_count = sum(1 for r in results.values() if r.compliant)
+        
+        logger.info(f"Completed verification: {len(results)} requirements checked in {total_time:.2f}s")
+        
+        self.metrics_collector.record_counter("compliance_verification.completed", tags={
+            "regulation": regulation.name
+        })
+        self.metrics_collector.record_gauge("compliance_verification.compliance_rate", 
+                                          (compliant_count / len(results)) * 100 if results else 0)
+        self.metrics_collector.record_timer("compliance_verification.total_duration", total_time * 1000)
+        
+        # Reset circuit breaker on success
+        self._reset_circuit_breaker()
+        
+        return results
+    
+    def _verify_requirement_enhanced(self, contract: ParsedContract, requirement) -> ComplianceResult:
+        """Enhanced requirement verification with better error handling."""
+        
+        try:
+            result = ComplianceResult(
+                requirement_id=requirement.id,
+                requirement_description=requirement.description,
+                status=ComplianceStatus.COMPLIANT,  # Default assumption
+                confidence=0.8
             )
             
-            # Enhance with proof search
-            if result.status == ComplianceStatus.NON_COMPLIANT:
-                counter_examples = self.compliance_solver.find_counter_examples(
-                    contract, requirement_id, regulation_type
-                )
-                
-                if counter_examples:
-                    result.counter_example = {
-                        'examples': [ce.__dict__ for ce in counter_examples],
-                        'count': len(counter_examples)
-                    }
+            # Enhanced keyword-based verification with error handling
+            relevant_clauses = []
+            processed_clauses = 0
             
-            # Add formal proof details
-            if result.formal_proof:
-                proof = self.proof_searcher.search_proof(
-                    goal=f"compliant({requirement_id})",
-                    premises=[],
-                    contract=contract
-                )
+            for clause in contract.clauses:
+                try:
+                    processed_clauses += 1
+                    clause_text = clause.text.lower() if clause.text else ""
+                    
+                    # Validate clause text
+                    if not clause_text.strip():
+                        logger.debug(f"Skipping empty clause {clause.id}")
+                        continue
+                    
+                    # Check if clause contains requirement keywords
+                    matching_keywords = []
+                    for keyword in requirement.keywords:
+                        if keyword and keyword.lower() in clause_text:
+                            matching_keywords.append(keyword)
+                    
+                    if matching_keywords:
+                        relevant_clauses.append(clause.text)
+                        logger.debug(f"Clause {clause.id} matches keywords: {matching_keywords}")
+                        
+                except Exception as e:
+                    logger.warning(f"Error processing clause {getattr(clause, 'id', 'unknown')}: {e}")
+                    continue
+            
+            result.supporting_clauses = relevant_clauses
+            
+            # Enhanced compliance assessment
+            if not relevant_clauses and requirement.mandatory:
+                result.status = ComplianceStatus.NON_COMPLIANT
+                result.issue = f"No clauses found addressing {requirement.description}"
+                result.suggestion = f"Add clause addressing: {requirement.description}"
+                result.confidence = 0.9
                 
-                if proof:
-                    result.formal_proof += f" | Proof steps: {len(proof.steps)}"
+                # Log compliance violation with context
+                log_security_event("compliance_violation_detected", {
+                    "requirement_id": requirement.id,
+                    "regulation": requirement.article_reference if hasattr(requirement, 'article_reference') else "unknown",
+                    "contract_id": contract.id,
+                    "violation_type": "missing_clause"
+                }, "WARNING")
+                
+                self.metrics_collector.record_counter("compliance_verification.violation", tags={
+                    "requirement_id": requirement.id,
+                    "violation_type": "missing_clause"
+                })
+            
+            elif relevant_clauses:
+                # Assess quality of matching clauses
+                clause_quality_score = self._assess_clause_quality(relevant_clauses, requirement)
+                result.confidence = min(0.95, 0.7 + (clause_quality_score * 0.25))
+                
+                if clause_quality_score < 0.3:
+                    result.status = ComplianceStatus.PARTIAL
+                    result.issue = "Found relevant clauses but they may not fully address the requirement"
+                    result.suggestion = "Review and strengthen the relevant clauses"
+            
+            # Add metadata
+            result.metadata = {
+                "processed_clauses": processed_clauses,
+                "matching_clauses": len(relevant_clauses),
+                "verification_timestamp": datetime.now().isoformat(),
+                "verification_method": "enhanced_keyword_matching"
+            }
             
             return result
             
         except Exception as e:
-            logger.error(f"Formal verification error: {e}")
-            return self._create_error_result(requirement_id, str(e))
+            logger.error(f"Error in enhanced requirement verification: {e}")
+            raise ComplianceVerificationError(
+                f"Failed to verify requirement {requirement.id}: {str(e)}",
+                regulation_name=getattr(requirement, 'regulation_name', 'unknown'),
+                requirement_id=requirement.id
+            )
     
-    def generate_comprehensive_report(
+    def _assess_clause_quality(self, clauses: List[str], requirement) -> float:
+        """Assess the quality of matching clauses."""
+        
+        if not clauses:
+            return 0.0
+        
+        try:
+            quality_score = 0.0
+            keyword_matches = 0
+            total_keywords = len(requirement.keywords)
+            
+            # Check keyword coverage
+            all_clause_text = " ".join(clauses).lower()
+            for keyword in requirement.keywords:
+                if keyword and keyword.lower() in all_clause_text:
+                    keyword_matches += 1
+            
+            # Base score from keyword coverage
+            if total_keywords > 0:
+                quality_score = keyword_matches / total_keywords
+            
+            # Bonus for specific legal language
+            legal_terms = ['shall', 'must', 'required', 'obligation', 'compliance', 'accordance']
+            legal_term_matches = sum(1 for term in legal_terms if term in all_clause_text)
+            quality_score += min(0.3, legal_term_matches * 0.05)
+            
+            # Penalty for vague language
+            vague_terms = ['may consider', 'if possible', 'best effort', 'reasonable']
+            vague_matches = sum(1 for term in vague_terms if term in all_clause_text)
+            quality_score -= min(0.2, vague_matches * 0.05)
+            
+            return max(0.0, min(1.0, quality_score))
+            
+        except Exception as e:
+            logger.warning(f"Error assessing clause quality: {e}")
+            return 0.5  # Default moderate score
+    
+    def _fallback_verification(self, contract: ParsedContract, regulation: BaseRegulation) -> Dict[str, ComplianceResult]:
+        """Fallback verification when main verification fails."""
+        
+        logger.info("Using fallback verification method")
+        self.metrics_collector.record_counter("compliance_verification.fallback_used")
+        
+        try:
+            requirements = regulation.get_requirements()
+            results = {}
+            
+            for req_id, requirement in requirements.items():
+                # Very basic fallback - just check if any clauses exist
+                has_clauses = bool(contract.clauses)
+                
+                result = ComplianceResult(
+                    requirement_id=req_id,
+                    requirement_description=requirement.description,
+                    status=ComplianceStatus.UNKNOWN if not has_clauses else ComplianceStatus.PARTIAL,
+                    confidence=0.3,  # Low confidence for fallback
+                    issue="Verified using fallback method due to system limitations",
+                    suggestion="Manual review recommended"
+                )
+                
+                results[req_id] = result
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Fallback verification failed: {e}")
+            # Return empty results rather than crashing
+            return {}
+    
+    def _handle_verification_failure(self, error: Exception, regulation_name: str) -> None:
+        """Handle verification failures and update circuit breaker."""
+        
+        logger.error(f"Verification failure for {regulation_name}: {error}")
+        
+        # Update circuit breaker
+        self._circuit_breaker['failures'] += 1
+        self._circuit_breaker['last_failure'] = datetime.now()
+        
+        if self._circuit_breaker['failures'] >= 5:  # Open circuit after 5 failures
+            self._circuit_breaker['state'] = 'open'
+            logger.warning("Circuit breaker opened due to repeated failures")
+        
+        # Log security event
+        log_security_event("verification_failure", {
+            "regulation_name": regulation_name,
+            "error_type": type(error).__name__,
+            "error_message": str(error),
+            "circuit_breaker_state": self._circuit_breaker['state']
+        }, "ERROR")
+        
+        self.metrics_collector.record_counter("compliance_verification.failure", tags={
+            "regulation": regulation_name,
+            "error_type": type(error).__name__
+        })
+    
+    def _reset_circuit_breaker(self) -> None:
+        """Reset circuit breaker on successful operations."""
+        
+        if self._circuit_breaker['state'] != 'closed':
+            logger.info("Resetting circuit breaker - operations successful")
+            self._circuit_breaker = {
+                'failures': 0,
+                'last_failure': None,
+                'state': 'closed'
+            }
+    
+    def _manage_cache_size(self) -> None:
+        """Manage cache size to prevent memory issues."""
+        
+        if len(self._verification_cache) > self.max_cache_size:
+            # Remove oldest entries (simple LRU approximation)
+            items_to_remove = len(self._verification_cache) - int(self.max_cache_size * 0.8)
+            cache_keys = list(self._verification_cache.keys())
+            
+            for key in cache_keys[:items_to_remove]:
+                del self._verification_cache[key]
+            
+            logger.info(f"Cache size management: removed {items_to_remove} old entries")
+            self.metrics_collector.record_counter("cache.evicted", items_to_remove)
+    
+    def _get_cache_key(self, contract_id: str, requirement_id: str, regulation_name: str) -> str:
+        """Generate cache key for verification result."""
+        return f"{contract_id}:{requirement_id}:{regulation_name}"
+    
+    @handle_exception_gracefully
+    def generate_compliance_report(
         self,
         contract: ParsedContract,
         regulation: BaseRegulation,
-        results: Optional[Dict[str, ComplianceResult]] = None,
-        include_formal_proofs: bool = True,
-        include_explanations: bool = True
+        results: Optional[Dict[str, ComplianceResult]] = None
     ) -> ComplianceReport:
-        """
-        Generate comprehensive compliance report with enhanced features.
+        """Generate enhanced compliance report with additional metrics."""
         
-        Args:
-            contract: Contract analyzed
-            regulation: Regulation checked
-            results: Verification results
-            include_formal_proofs: Include formal verification details
-            include_explanations: Include natural language explanations
+        with PerformanceTimer(self.metrics_collector, "compliance_report.generation_time"):
+            if results is None:
+                results = self.verify_compliance(contract, regulation)
             
-        Returns:
-            Enhanced compliance report
-        """
-        if results is None:
-            results = self.verify_compliance(contract, regulation)
-        
-        # Create base report
-        report = super().generate_compliance_report(contract, regulation, results)
-        
-        # Enhance with formal verification details
-        if include_formal_proofs:
-            for req_id, result in results.items():
-                if not result.formal_proof and self.enable_formal_verification:
-                    # Generate formal proof
-                    formal_result = self.verify_with_formal_methods(
-                        contract, req_id, regulation.name.lower().replace(" ", "_")
-                    )
-                    result.formal_proof = formal_result.formal_proof
-                    result.counter_example = formal_result.counter_example
-        
-        # Enhance with explanations
-        if include_explanations:
-            for result in results.values():
-                if result.violations:
-                    for violation in result.violations:
-                        explanation = self.explainer.explain_violation(
-                            violation, contract, "legal_team"
-                        )
-                        violation.suggested_fix = explanation.remediation_steps[0] if explanation.remediation_steps else violation.suggested_fix
-        
-        return report
-    
-    async def _verify_requirements_parallel(
-        self,
-        contract: ParsedContract,
-        requirements: Dict[str, Any],
-        regulation_name: str
-    ) -> Dict[str, ComplianceResult]:
-        """Verify requirements in parallel."""
-        
-        logger.info(f"Parallel verification of {len(requirements)} requirements")
-        
-        loop = asyncio.get_event_loop()
-        
-        # Create verification tasks
-        tasks = []
-        for req_id, requirement in requirements.items():
-            task = loop.run_in_executor(
-                self.thread_pool,
-                self._verify_single_requirement_enhanced,
-                contract, req_id, requirement, regulation_name
+            # Enhanced status determination
+            compliant_count = sum(1 for r in results.values() if r.compliant)
+            total_count = len(results)
+            partial_count = sum(1 for r in results.values() if r.status == ComplianceStatus.PARTIAL)
+            unknown_count = sum(1 for r in results.values() if r.status == ComplianceStatus.UNKNOWN)
+            
+            if compliant_count == total_count:
+                overall_status = ComplianceStatus.COMPLIANT
+            elif compliant_count == 0:
+                overall_status = ComplianceStatus.NON_COMPLIANT
+            else:
+                overall_status = ComplianceStatus.PARTIAL
+            
+            report = ComplianceReport(
+                contract_id=contract.id,
+                regulation_name=regulation.name,
+                results=results,
+                overall_status=overall_status,
+                timestamp=datetime.now().isoformat()
             )
-            tasks.append((req_id, task))
-        
-        # Wait for all tasks to complete
-        results = {}
-        for req_id, task in tasks:
-            try:
-                result = await task
-                results[req_id] = result
-            except Exception as e:
-                logger.error(f"Error verifying {req_id}: {e}")
-                results[req_id] = self._create_error_result(req_id, str(e))
-        
-        return results
+            
+            # Add enhanced metadata
+            report.metadata = {
+                "verification_summary": {
+                    "total_requirements": total_count,
+                    "compliant": compliant_count,
+                    "non_compliant": total_count - compliant_count - partial_count - unknown_count,
+                    "partial": partial_count,
+                    "unknown": unknown_count,
+                    "compliance_percentage": (compliant_count / total_count * 100) if total_count > 0 else 0
+                },
+                "system_info": {
+                    "cache_enabled": self.cache_enabled,
+                    "cache_size": len(self._verification_cache),
+                    "circuit_breaker_state": self._circuit_breaker['state'],
+                    "verification_method": "enhanced_prover_v2"
+                }
+            }
+            
+            self.metrics_collector.record_counter("compliance_report.generated")
+            
+            return report
     
-    async def _verify_requirements_sequential(
-        self,
-        contract: ParsedContract,
-        requirements: Dict[str, Any],
-        regulation_name: str
-    ) -> Dict[str, ComplianceResult]:
-        """Verify requirements sequentially."""
+    def clear_cache(self) -> None:
+        """Clear verification cache with logging."""
         
-        logger.info(f"Sequential verification of {len(requirements)} requirements")
+        cache_size = len(self._verification_cache)
+        self._verification_cache.clear()
         
-        results = {}
-        for req_id, requirement in requirements.items():
-            try:
-                result = self._verify_single_requirement_enhanced(
-                    contract, req_id, requirement, regulation_name
-                )
-                results[req_id] = result
-            except Exception as e:
-                logger.error(f"Error verifying {req_id}: {e}")
-                results[req_id] = self._create_error_result(req_id, str(e))
+        self.metrics_collector.record_counter("cache.cleared")
+        self.metrics_collector.record_gauge("cache.size", 0)
         
-        return results
+        logger.info(f"Cleared {cache_size} items from verification cache")
+        log_security_event("cache_cleared", {
+            "previous_size": cache_size,
+            "cleared_by": "user_request"
+        })
     
-    def _verify_single_requirement_enhanced(
-        self,
-        contract: ParsedContract,
-        req_id: str,
-        requirement: Any,
-        regulation_name: str
-    ) -> ComplianceResult:
-        """Enhanced verification of single requirement."""
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """Get comprehensive cache statistics."""
         
-        # Check advanced cache first
-        cache_key = self._get_advanced_cache_key(contract.id, req_id, regulation_name)
-        
-        if cache_key in self._advanced_cache:
-            self.performance_metrics.cache_hits += 1
-            return self._advanced_cache[cache_key]
-        
-        self.performance_metrics.cache_misses += 1
-        
-        # Use formal verification if enabled
-        if self.enable_formal_verification:
-            result = self.verify_with_formal_methods(
-                contract, req_id, regulation_name.lower().replace(" ", "_")
-            )
-        else:
-            # Fallback to basic verification
-            result = self._verify_requirement(contract, requirement)
-        
-        # Cache result
-        self._advanced_cache[cache_key] = result
-        
-        return result
-    
-    async def _add_explanations_to_results(
-        self,
-        results: Dict[str, ComplianceResult],
-        contract: ParsedContract
-    ) -> None:
-        """Add explanations to verification results."""
-        
-        explanation_start = datetime.now()
-        
-        for result in results.values():
-            if result.violations:
-                for violation in result.violations:
-                    try:
-                        explanation = self.explainer.explain_violation(
-                            violation, contract, "legal_team"
-                        )
-                        
-                        # Enhance violation with explanation details
-                        if not violation.suggested_fix and explanation.remediation_steps:
-                            violation.suggested_fix = explanation.remediation_steps[0]
-                        
-                    except Exception as e:
-                        logger.error(f"Error generating explanation: {e}")
-        
-        explanation_time = (datetime.now() - explanation_start).total_seconds()
-        self.performance_metrics.explanation_time = explanation_time
-    
-    def _get_advanced_cache_key(self, contract_id: str, req_id: str, regulation_name: str) -> str:
-        """Generate advanced cache key with versioning."""
-        version = "v3"  # Cache version for enhanced prover
-        return f"{version}:{contract_id}:{req_id}:{regulation_name}"
-    
-    def _create_error_result(self, requirement_id: str, error_message: str) -> ComplianceResult:
-        """Create error result for failed verification."""
-        return ComplianceResult(
-            requirement_id=requirement_id,
-            requirement_description=f"Requirement {requirement_id}",
-            status=ComplianceStatus.UNKNOWN,
-            confidence=0.0,
-            issue=error_message
-        )
-    
-    def get_performance_metrics(self) -> PerformanceMetrics:
-        """Get performance metrics for the prover."""
-        return self.performance_metrics
-    
-    def optimize_cache(self) -> Dict[str, Any]:
-        """Optimize cache performance."""
-        
-        # Cache statistics
-        cache_info = {
-            "size": len(self._advanced_cache),
-            "max_size": self._advanced_cache.maxsize,
-            "hits": self.performance_metrics.cache_hits,
-            "misses": self.performance_metrics.cache_misses,
-            "hit_rate": self.performance_metrics.cache_hits / max(1, self.performance_metrics.cache_hits + self.performance_metrics.cache_misses)
+        stats = {
+            "cached_results": len(self._verification_cache),
+            "cache_enabled": self.cache_enabled,
+            "max_cache_size": self.max_cache_size,
+            "cache_utilization": len(self._verification_cache) / self.max_cache_size if self.max_cache_size > 0 else 0,
+            "circuit_breaker_state": self._circuit_breaker['state'],
+            "circuit_breaker_failures": self._circuit_breaker['failures']
         }
         
-        # Clear expired entries
-        # TTL cache handles this automatically
+        # Update metrics
+        self.metrics_collector.record_gauge("cache.size", len(self._verification_cache))
+        self.metrics_collector.record_gauge("cache.utilization", stats["cache_utilization"])
         
-        logger.info(f"Cache optimization: {cache_info}")
-        return cache_info
+        return stats
     
-    def cleanup(self) -> None:
-        """Cleanup resources."""
-        if self.thread_pool:
-            self.thread_pool.shutdown(wait=True)
+    def get_system_health(self) -> Dict[str, Any]:
+        """Get system health information."""
         
-        self._advanced_cache.clear()
-        self.clear_cache()  # Parent cache
+        from .monitoring import get_health_checker
+        health_checker = get_health_checker()
+        
+        return {
+            "enhanced_prover_status": "operational",
+            "cache_status": "healthy" if len(self._verification_cache) < self.max_cache_size * 0.9 else "degraded",
+            "circuit_breaker": self._circuit_breaker,
+            "system_health": health_checker.get_overall_status(),
+            "metrics_summary": self.metrics_collector.get_all_metrics_summary()
+        }
