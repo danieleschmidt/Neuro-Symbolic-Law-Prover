@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from ..parsing.contract_parser import ParsedContract
-from ..core.compliance_result import ComplianceResult, ComplianceViolation, ComplianceStatus
+from ..core.compliance_result import ComplianceResult, ComplianceViolation, ComplianceStatus, ViolationSeverity
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +80,11 @@ class ExplainabilityEngine:
             # Get base explanation templates
             templates = self.explanation_templates.get(
                 violation.rule_id, 
-                self.explanation_templates["default"]
+                self.explanation_templates.get("default", {
+                    "legal": "A compliance violation was identified that requires attention.",
+                    "business": "This compliance gap creates regulatory risk.",
+                    "technical": "Technical or contractual updates may be needed."
+                })
             )
             
             # Generate audience-specific explanations
@@ -151,7 +155,7 @@ class ExplainabilityEngine:
     ) -> str:
         """Generate legal professional explanation."""
         
-        template = templates.get("legal", templates["default"])
+        template = templates.get("legal", templates.get("default", "A compliance violation was identified that requires attention."))
         
         # Extract relevant legal context
         regulation_name = self._extract_regulation_name(violation.rule_id)
@@ -163,7 +167,7 @@ class ExplainabilityEngine:
             article=article_reference,
             violation_text=violation.violation_text,
             severity=violation.severity.value,
-            contract_type=contract.contract_type or "contract"
+            contract_type=getattr(contract, 'contract_type', None) or "contract"
         )
         
         # Add specific legal context
