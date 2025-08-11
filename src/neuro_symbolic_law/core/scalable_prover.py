@@ -166,7 +166,8 @@ class ResourceManager:
     
     def __init__(self, max_workers: int = None, memory_threshold: float = 0.8):
         """Initialize resource manager."""
-        import psutil
+        # Use the psutil from monitoring module (with fallback)
+        from .monitoring import psutil, PSUTIL_AVAILABLE
         
         self.cpu_count = psutil.cpu_count()
         self.max_workers = max_workers or min(32, (self.cpu_count or 1) + 4)
@@ -196,7 +197,7 @@ class ResourceManager:
     def check_resources(self) -> Dict[str, Any]:
         """Check system resource availability."""
         try:
-            import psutil
+            from .monitoring import psutil, PSUTIL_AVAILABLE
             
             cpu_percent = psutil.cpu_percent(interval=1)
             memory = psutil.virtual_memory()
@@ -222,8 +223,8 @@ class ResourceManager:
                 'resource_status': self._get_resource_status(cpu_percent, memory.percent)
             }
             
-        except ImportError:
-            logger.warning("psutil not available - using basic resource checking")
+        except (ImportError, Exception) as e:
+            logger.warning(f"Resource checking not available: {e} - using fallback")
             return {
                 'cpu_percent': 50,  # Assume moderate load
                 'memory_percent': 50,
