@@ -17,6 +17,8 @@ from .exceptions import (
 from .monitoring import get_metrics_collector, PerformanceTimer
 from .compliance_result import ComplianceResult, ComplianceReport, ComplianceStatus
 from ..parsing.contract_parser import ParsedContract
+from ..parsing.neural_parser import NeuralContractParser
+from ..reasoning.z3_encoder import Z3Encoder
 from ..regulations.base_regulation import BaseRegulation
 
 logger = logging.getLogger(__name__)
@@ -40,7 +42,9 @@ class EnhancedLegalProver:
         cache_enabled: bool = True, 
         debug: bool = False, 
         max_cache_size: int = 10000,
-        verification_timeout_seconds: int = 300
+        verification_timeout_seconds: int = 300,
+        enable_neural_parsing: bool = True,
+        enable_z3_verification: bool = True
     ):
         """
         Initialize the enhanced legal prover.
@@ -50,15 +54,39 @@ class EnhancedLegalProver:
             debug: Enable debug logging
             max_cache_size: Maximum number of cached results
             verification_timeout_seconds: Timeout for verification operations
+            enable_neural_parsing: Enable neural contract parsing
+            enable_z3_verification: Enable Z3 formal verification
         """
         self.cache_enabled = cache_enabled
         self.debug = debug
         self.max_cache_size = max_cache_size
         self.verification_timeout_seconds = verification_timeout_seconds
+        self.enable_neural_parsing = enable_neural_parsing
+        self.enable_z3_verification = enable_z3_verification
         
         # Core data structures
         self._verification_cache: Dict[str, ComplianceResult] = {}
         self.metrics_collector = get_metrics_collector()
+        
+        # Initialize neural parser if enabled
+        self.neural_parser = None
+        if enable_neural_parsing:
+            try:
+                self.neural_parser = NeuralContractParser(debug=debug)
+                logger.info("Neural parser initialized successfully")
+            except Exception as e:
+                logger.warning(f"Failed to initialize neural parser: {e}")
+                self.enable_neural_parsing = False
+        
+        # Initialize Z3 encoder if enabled
+        self.z3_encoder = None
+        if enable_z3_verification:
+            try:
+                self.z3_encoder = Z3Encoder(debug=debug)
+                logger.info("Z3 encoder initialized successfully")
+            except Exception as e:
+                logger.warning(f"Failed to initialize Z3 encoder: {e}")
+                self.enable_z3_verification = False
         
         # Circuit breaker state for external dependencies
         self._circuit_breaker = {
@@ -266,7 +294,7 @@ class EnhancedLegalProver:
         return results
     
     def _verify_requirement_enhanced(self, contract: ParsedContract, requirement) -> ComplianceResult:
-        """Enhanced requirement verification with better error handling."""
+        """Enhanced requirement verification with neural parsing and Z3 formal verification."""
         
         try:
             result = ComplianceResult(
@@ -276,72 +304,46 @@ class EnhancedLegalProver:
                 confidence=0.8
             )
             
-            # Enhanced keyword-based verification with error handling
-            relevant_clauses = []
-            processed_clauses = 0
-            
-            for clause in contract.clauses:
+            # Stage 1: Neural semantic analysis (if enabled)
+            semantic_analysis = None
+            if self.enable_neural_parsing and self.neural_parser:
                 try:
-                    processed_clauses += 1
-                    clause_text = clause.text.lower() if clause.text else ""
-                    
-                    # Validate clause text
-                    if not clause_text.strip():
-                        logger.debug(f"Skipping empty clause {clause.id}")
-                        continue
-                    
-                    # Check if clause contains requirement keywords
-                    matching_keywords = []
-                    for keyword in requirement.keywords:
-                        if keyword and keyword.lower() in clause_text:
-                            matching_keywords.append(keyword)
-                    
-                    if matching_keywords:
-                        relevant_clauses.append(clause.text)
-                        logger.debug(f"Clause {clause.id} matches keywords: {matching_keywords}")
-                        
+                    enhanced_clauses = self.neural_parser.enhance_clauses(contract.clauses)
+                    semantic_analysis = self._perform_semantic_analysis(enhanced_clauses, requirement)
+                    self.metrics_collector.record_counter("verification.neural_parsing.success")
                 except Exception as e:
-                    logger.warning(f"Error processing clause {getattr(clause, 'id', 'unknown')}: {e}")
-                    continue
+                    logger.warning(f"Neural parsing failed for {requirement.id}: {e}")
+                    self.metrics_collector.record_counter("verification.neural_parsing.failure")
             
-            result.supporting_clauses = relevant_clauses
+            # Stage 2: Z3 formal verification (if enabled and applicable)
+            formal_verification = None
+            if self.enable_z3_verification and self.z3_encoder:
+                try:
+                    formal_verification = self._perform_formal_verification(contract, requirement)
+                    self.metrics_collector.record_counter("verification.z3_verification.success")
+                except Exception as e:
+                    logger.warning(f"Z3 verification failed for {requirement.id}: {e}")
+                    self.metrics_collector.record_counter("verification.z3_verification.failure")
             
-            # Enhanced compliance assessment
-            if not relevant_clauses and requirement.mandatory:
-                result.status = ComplianceStatus.NON_COMPLIANT
-                result.issue = f"No clauses found addressing {requirement.description}"
-                result.suggestion = f"Add clause addressing: {requirement.description}"
-                result.confidence = 0.9
-                
-                # Log compliance violation with context
-                log_security_event("compliance_violation_detected", {
-                    "requirement_id": requirement.id,
-                    "regulation": requirement.article_reference if hasattr(requirement, 'article_reference') else "unknown",
-                    "contract_id": contract.id,
-                    "violation_type": "missing_clause"
-                }, "WARNING")
-                
-                self.metrics_collector.record_counter("compliance_verification.violation", tags={
-                    "requirement_id": requirement.id,
-                    "violation_type": "missing_clause"
-                })
+            # Stage 3: Traditional keyword-based verification (fallback)
+            keyword_verification = self._perform_keyword_verification(contract, requirement)
             
-            elif relevant_clauses:
-                # Assess quality of matching clauses
-                clause_quality_score = self._assess_clause_quality(relevant_clauses, requirement)
-                result.confidence = min(0.95, 0.7 + (clause_quality_score * 0.25))
-                
-                if clause_quality_score < 0.3:
-                    result.status = ComplianceStatus.PARTIAL
-                    result.issue = "Found relevant clauses but they may not fully address the requirement"
-                    result.suggestion = "Review and strengthen the relevant clauses"
+            # Combine results from all verification stages
+            result = self._combine_verification_results(
+                keyword_verification, semantic_analysis, formal_verification, requirement
+            )
             
-            # Add metadata
+            # Enhanced metadata with all verification methods
             result.metadata = {
-                "processed_clauses": processed_clauses,
-                "matching_clauses": len(relevant_clauses),
+                "processed_clauses": len(contract.clauses),
                 "verification_timestamp": datetime.now().isoformat(),
-                "verification_method": "enhanced_keyword_matching"
+                "verification_methods": {
+                    "keyword_matching": True,
+                    "neural_parsing": semantic_analysis is not None,
+                    "z3_formal": formal_verification is not None
+                },
+                "semantic_analysis": semantic_analysis,
+                "formal_verification": formal_verification
             }
             
             return result
@@ -353,6 +355,209 @@ class EnhancedLegalProver:
                 regulation_name=getattr(requirement, 'regulation_name', 'unknown'),
                 requirement_id=requirement.id
             )
+    
+    def _perform_semantic_analysis(self, enhanced_clauses, requirement) -> Dict[str, Any]:
+        """Perform semantic analysis using neural parser."""
+        try:
+            # Find semantically relevant clauses
+            relevant_clauses = []
+            semantic_types = []
+            
+            for clause in enhanced_clauses:
+                # Check semantic type alignment
+                if clause.semantic_type and any(cat in requirement.categories for cat in [clause.semantic_type]):
+                    relevant_clauses.append(clause)
+                    semantic_types.append(clause.semantic_type)
+                
+                # Check obligation strength for mandatory requirements
+                if requirement.mandatory and clause.obligation_strength > 0.7:
+                    if clause not in relevant_clauses:
+                        relevant_clauses.append(clause)
+            
+            # Extract entities and temporal constraints
+            entities = []
+            temporal_constraints = []
+            
+            for clause in relevant_clauses:
+                entities.extend(clause.legal_entities)
+                temporal_constraints.extend(clause.temporal_expressions)
+            
+            return {
+                "relevant_clauses_count": len(relevant_clauses),
+                "semantic_types": list(set(semantic_types)),
+                "entities": list(set(entities)),
+                "temporal_constraints": list(set(temporal_constraints)),
+                "avg_obligation_strength": sum(c.obligation_strength for c in relevant_clauses) / len(relevant_clauses) if relevant_clauses else 0,
+                "confidence_score": 0.8 if relevant_clauses else 0.2
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in semantic analysis: {e}")
+            return {"error": str(e), "confidence_score": 0.1}
+    
+    def _perform_formal_verification(self, contract: ParsedContract, requirement) -> Dict[str, Any]:
+        """Perform formal verification using Z3."""
+        try:
+            if not self.z3_encoder:
+                return None
+            
+            # Choose appropriate Z3 encoding based on requirement type
+            constraints = []
+            
+            # GDPR-specific formal verification
+            if hasattr(requirement, 'article_reference') and 'GDPR' in str(requirement.article_reference):
+                if 'data minimization' in requirement.description.lower():
+                    constraints = self.z3_encoder.encode_gdpr_data_minimization(contract)
+                elif 'purpose limitation' in requirement.description.lower():
+                    constraints = self.z3_encoder.encode_gdpr_purpose_limitation(contract)
+                elif 'retention' in requirement.description.lower():
+                    constraints = self.z3_encoder.encode_gdpr_retention_limits(contract)
+            
+            # AI Act-specific formal verification
+            elif hasattr(requirement, 'article_reference') and 'AI Act' in str(requirement.article_reference):
+                if 'transparency' in requirement.description.lower():
+                    constraints = self.z3_encoder.encode_ai_act_transparency(contract)
+                elif 'human oversight' in requirement.description.lower():
+                    constraints = self.z3_encoder.encode_ai_act_human_oversight(contract)
+            
+            # Verify constraints if any were generated
+            if constraints:
+                verification_results = []
+                for constraint in constraints:
+                    if constraint.constraint_type != "error":
+                        constraint_result = self.z3_encoder.verify_constraint(constraint)
+                        verification_results.append({
+                            "constraint_name": constraint.name,
+                            "status": constraint_result.status.value,
+                            "confidence": constraint_result.confidence,
+                            "issue": constraint_result.issue
+                        })
+                
+                return {
+                    "constraints_verified": len(verification_results),
+                    "results": verification_results,
+                    "overall_status": "compliant" if all(r["status"] == "compliant" for r in verification_results) else "non_compliant",
+                    "confidence_score": sum(r["confidence"] for r in verification_results) / len(verification_results) if verification_results else 0
+                }
+            
+            return {"message": "No applicable formal constraints", "confidence_score": 0.5}
+            
+        except Exception as e:
+            logger.error(f"Error in formal verification: {e}")
+            return {"error": str(e), "confidence_score": 0.1}
+    
+    def _perform_keyword_verification(self, contract: ParsedContract, requirement) -> ComplianceResult:
+        """Traditional keyword-based verification."""
+        result = ComplianceResult(
+            requirement_id=requirement.id,
+            requirement_description=requirement.description,
+            status=ComplianceStatus.COMPLIANT,
+            confidence=0.6  # Lower baseline confidence
+        )
+        
+        # Enhanced keyword-based verification with error handling
+        relevant_clauses = []
+        processed_clauses = 0
+        
+        for clause in contract.clauses:
+            try:
+                processed_clauses += 1
+                clause_text = clause.text.lower() if clause.text else ""
+                
+                if not clause_text.strip():
+                    continue
+                
+                # Check if clause contains requirement keywords
+                matching_keywords = []
+                for keyword in requirement.keywords:
+                    if keyword and keyword.lower() in clause_text:
+                        matching_keywords.append(keyword)
+                
+                if matching_keywords:
+                    relevant_clauses.append(clause.text)
+                    
+            except Exception as e:
+                logger.warning(f"Error processing clause {getattr(clause, 'id', 'unknown')}: {e}")
+                continue
+        
+        result.supporting_clauses = relevant_clauses
+        
+        # Enhanced compliance assessment
+        if not relevant_clauses and requirement.mandatory:
+            result.status = ComplianceStatus.NON_COMPLIANT
+            result.issue = f"No clauses found addressing {requirement.description}"
+            result.suggestion = f"Add clause addressing: {requirement.description}"
+            result.confidence = 0.9
+        elif relevant_clauses:
+            clause_quality_score = self._assess_clause_quality(relevant_clauses, requirement)
+            result.confidence = min(0.85, 0.6 + (clause_quality_score * 0.25))
+            
+            if clause_quality_score < 0.3:
+                result.status = ComplianceStatus.PARTIAL
+                result.issue = "Found relevant clauses but they may not fully address the requirement"
+                result.suggestion = "Review and strengthen the relevant clauses"
+        
+        return result
+    
+    def _combine_verification_results(self, keyword_result, semantic_analysis, formal_verification, requirement) -> ComplianceResult:
+        """Combine results from multiple verification methods."""
+        
+        # Start with keyword verification result
+        final_result = keyword_result
+        
+        # Enhance with semantic analysis
+        if semantic_analysis and semantic_analysis.get('confidence_score', 0) > 0.5:
+            # Boost confidence if semantic analysis agrees
+            if semantic_analysis.get('relevant_clauses_count', 0) > 0:
+                final_result.confidence = min(0.95, final_result.confidence + 0.1)
+                
+                # Add semantic insights to suggestion
+                if 'entities' in semantic_analysis:
+                    entities = [e.split(':')[1] if ':' in e else e for e in semantic_analysis['entities'][:3]]
+                    if entities:
+                        final_result.suggestion = (final_result.suggestion or "") + f" Consider entities: {', '.join(entities)}"
+        
+        # Enhance with formal verification
+        if formal_verification and formal_verification.get('confidence_score', 0) > 0.5:
+            formal_status = formal_verification.get('overall_status')
+            
+            if formal_status == "compliant" and final_result.status == ComplianceStatus.COMPLIANT:
+                # Both methods agree on compliance - high confidence
+                final_result.confidence = min(0.98, final_result.confidence + 0.15)
+                final_result.supporting_evidence = final_result.supporting_evidence or []
+                final_result.supporting_evidence.append("Formal verification confirms compliance")
+                
+            elif formal_status == "non_compliant":
+                # Formal verification found issues - override other results
+                final_result.status = ComplianceStatus.NON_COMPLIANT
+                final_result.confidence = 0.95
+                final_result.issue = "Formal verification detected compliance violations"
+                
+                # Add specific issues from formal verification
+                if 'results' in formal_verification:
+                    issues = [r.get('issue') for r in formal_verification['results'] if r.get('issue')]
+                    if issues:
+                        final_result.suggestion = f"Address formal verification issues: {'; '.join(issues[:2])}"
+        
+        # Final confidence adjustment based on agreement between methods
+        confidence_scores = [keyword_result.confidence]
+        if semantic_analysis:
+            confidence_scores.append(semantic_analysis.get('confidence_score', 0.5))
+        if formal_verification:
+            confidence_scores.append(formal_verification.get('confidence_score', 0.5))
+        
+        # Use weighted average with higher weight for methods that agree
+        if len(confidence_scores) > 1:
+            avg_confidence = sum(confidence_scores) / len(confidence_scores)
+            variance = sum((c - avg_confidence) ** 2 for c in confidence_scores) / len(confidence_scores)
+            
+            # Lower variance means methods agree more - boost confidence
+            if variance < 0.1:  # Low variance - good agreement
+                final_result.confidence = min(0.98, final_result.confidence + 0.05)
+            elif variance > 0.3:  # High variance - poor agreement
+                final_result.confidence = max(0.3, final_result.confidence - 0.1)
+        
+        return final_result
     
     def _assess_clause_quality(self, clauses: List[str], requirement) -> float:
         """Assess the quality of matching clauses."""

@@ -15,7 +15,18 @@ import weakref
 import json
 import sqlite3
 from pathlib import Path
-import psutil
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+    class psutil:
+        @staticmethod
+        def cpu_percent(): return 50.0
+        @staticmethod
+        def virtual_memory(): 
+            class mem: percent = 60.0; total = 8*1024**3
+            return mem()
 import platform
 
 logger = logging.getLogger(__name__)

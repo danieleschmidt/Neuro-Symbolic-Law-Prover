@@ -210,7 +210,8 @@ def validate_focus_areas(focus_areas: List[str]) -> None:
         'security', 'technical_measures', 'organizational_measures', 'encryption',
         'transparency', 'consent', 'lawful_basis', 'privacy_by_design',
         'breach_notification', 'dpia', 'dpo', 'processor_agreements',
-        'international_transfers', 'adequacy_decisions', 'safeguards'
+        'international_transfers', 'adequacy_decisions', 'safeguards',
+        'rights', 'compliance', 'liability', 'retention'  # Additional common areas
     }
     
     for area in focus_areas:
