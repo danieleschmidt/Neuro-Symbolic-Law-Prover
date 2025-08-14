@@ -358,3 +358,107 @@ class Z3Encoder:
     def get_variable(self, name: str) -> Optional[Any]:
         """Get a registered Z3 variable by name."""
         return self._variable_registry.get(name)
+    
+    def verify_constraint(self, constraint: LogicalConstraint) -> ComplianceResult:
+        """Verify a logical constraint using Z3 solver."""
+        logger.info(f"Verifying constraint: {constraint.name}")
+        
+        try:
+            solver = Solver()
+            if Z3_AVAILABLE:
+                solver.set(timeout=30000)  # 30 second timeout
+            
+            # Add the constraint
+            solver.add(constraint.formula)
+            
+            # Check satisfiability
+            result = solver.check()
+            
+            if Z3_AVAILABLE and result == sat():
+                # Constraint is satisfiable - compliance is achievable
+                model = solver.model()
+                return ComplianceResult(
+                    requirement_id=constraint.name,
+                    requirement_description=constraint.description,
+                    status=ComplianceStatus.COMPLIANT,
+                    confidence=0.95,
+                    supporting_evidence=[f"Z3 model: {model}"]
+                )
+                
+            elif Z3_AVAILABLE and result == unsat():
+                # Constraint is unsatisfiable - compliance violation
+                counterexample = self._find_counterexample(constraint)
+                
+                return ComplianceResult(
+                    requirement_id=constraint.name,
+                    requirement_description=constraint.description,
+                    status=ComplianceStatus.NON_COMPLIANT,
+                    confidence=0.95,
+                    issue="Logical constraint cannot be satisfied",
+                    suggestion="Review contract clauses to ensure compliance",
+                    violations=[ComplianceViolation(
+                        rule_id=constraint.name,
+                        description=constraint.description,
+                        severity=ViolationSeverity.HIGH,
+                        clause_references=[],
+                        counterexample=counterexample
+                    )]
+                )
+            
+            else:
+                # Unknown result (timeout, error, or fallback mode)
+                return ComplianceResult(
+                    requirement_id=constraint.name,
+                    requirement_description=constraint.description,
+                    status=ComplianceStatus.UNKNOWN,
+                    confidence=0.3,
+                    issue="Unable to determine compliance status"
+                )
+                
+        except Exception as e:
+            logger.error(f"Error verifying constraint {constraint.name}: {e}")
+            return ComplianceResult(
+                requirement_id=constraint.name,
+                requirement_description=constraint.description,
+                status=ComplianceStatus.UNKNOWN,
+                confidence=0.1,
+                issue=f"Verification error: {str(e)}"
+            )
+    
+    def _find_counterexample(self, constraint: LogicalConstraint) -> Optional[CounterExample]:
+        """Find counterexample by negating the constraint."""
+        try:
+            if not Z3_AVAILABLE:
+                return None
+                
+            counter_solver = Solver()
+            counter_solver.set(timeout=15000)  # Shorter timeout for counterexample search
+            
+            # Add negation of the constraint
+            counter_solver.add(Not(constraint.formula))
+            
+            result = counter_solver.check()
+            
+            if result == sat():
+                model = counter_solver.model()
+                
+                # Extract variable assignments as counterexample
+                variable_assignments = {}
+                for var_name, z3_var in self._variable_registry.items():
+                    try:
+                        value = model.eval(z3_var)
+                        variable_assignments[var_name] = str(value)
+                    except:
+                        # Variable not in model
+                        pass
+                
+                return CounterExample(
+                    scenario_description=f"Counterexample for {constraint.name}",
+                    variable_assignments=variable_assignments,
+                    explanation=f"This scenario violates the requirement: {constraint.description}"
+                )
+                
+        except Exception as e:
+            logger.error(f"Error finding counterexample: {e}")
+            
+        return None

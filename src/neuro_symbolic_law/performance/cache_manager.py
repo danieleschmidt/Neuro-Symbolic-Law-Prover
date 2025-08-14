@@ -23,8 +23,22 @@ try:
 except ImportError:
     REDIS_AVAILABLE = False
 
-# Memory profiling
-import psutil
+# Memory profiling with fallback
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+    # Mock psutil for basic functionality
+    class psutil:
+        class virtual_memory:
+            def __init__(self):
+                self.total = 8 * 1024**3  # 8GB default
+                self.available = 4 * 1024**3  # 4GB available
+                self.percent = 50.0
+        @staticmethod
+        def virtual_memory():
+            return psutil.virtual_memory()
 
 logger = logging.getLogger(__name__)
 

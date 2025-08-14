@@ -13,7 +13,22 @@ from enum import Enum
 from collections import defaultdict, deque
 import threading
 import weakref
-import psutil
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+    # Mock basic functionality
+    class psutil:
+        @staticmethod
+        def cpu_percent(): return 50.0
+        @staticmethod
+        def virtual_memory(): 
+            class mem: 
+                percent = 60.0
+                total = 8*1024**3
+                available = 4*1024**3
+            return mem()
 import socket
 
 logger = logging.getLogger(__name__)

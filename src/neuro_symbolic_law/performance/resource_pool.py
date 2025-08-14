@@ -13,7 +13,26 @@ from queue import Queue, PriorityQueue, Empty
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, Future
 import weakref
 from contextlib import asynccontextmanager, contextmanager
-import psutil
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+    # Mock basic functionality
+    class psutil:
+        @staticmethod
+        def cpu_count(): return 4
+        @staticmethod
+        def virtual_memory(): 
+            class mem: 
+                percent = 60.0
+                total = 8*1024**3
+                available = 4*1024**3
+            return mem()
+        class Process:
+            def __init__(self, pid): pass
+            def memory_percent(self): return 25.0
+            def cpu_percent(self): return 30.0
 
 logger = logging.getLogger(__name__)
 

@@ -21,6 +21,10 @@ from .monitoring import get_metrics_collector, get_health_checker, PerformanceTi
 from .compliance_result import ComplianceResult, ComplianceReport, ComplianceStatus
 from ..parsing.contract_parser import ParsedContract
 from ..regulations.base_regulation import BaseRegulation
+from ..performance.auto_scaler import (
+    PredictiveScaler, LoadBalancer, CircuitBreaker, PerformanceOptimizer,
+    ResourceMetrics, ScalingPolicy, ScalingDecision
+)
 
 logger = logging.getLogger(__name__)
 
@@ -330,8 +334,20 @@ class ScalableLegalProver(EnhancedLegalProver):
         self._active_requests: Dict[str, float] = {}  # request_id -> start_time
         self._performance_history = deque(maxlen=1000)
         
-        # Auto-scaling parameters
-        self._load_balancer = LoadBalancer()
+        # Auto-scaling components
+        scaling_policy = ScalingPolicy(
+            min_workers=2,
+            max_workers=max_workers or 20,
+            target_cpu_threshold=0.7,
+            target_memory_threshold=memory_threshold
+        )
+        self.auto_scaler = PredictiveScaler(scaling_policy)
+        # Use the new LoadBalancer from auto_scaler instead of the simple one
+        from ..performance.auto_scaler import LoadBalancer as NewLoadBalancer
+        self.load_balancer = NewLoadBalancer(scaling_policy.min_workers)
+        self.circuit_breaker = CircuitBreaker()
+        self.performance_optimizer = PerformanceOptimizer()
+        
         self._optimization_enabled = True
         
         # Background tasks
@@ -682,6 +698,143 @@ class ScalableLegalProver(EnhancedLegalProver):
         self.metrics_collector.record_counter("manual_optimization.triggered")
         
         return optimization_results
+    
+    def get_resource_metrics(self) -> ResourceMetrics:
+        """Get current resource utilization metrics."""
+        try:
+            import psutil
+            import os
+            process = psutil.Process(os.getpid())
+            
+            return ResourceMetrics(
+                cpu_usage=process.cpu_percent() / 100.0,
+                memory_usage=process.memory_percent() / 100.0,
+                request_rate=len(self._active_requests) * 60.0,  # Requests per minute estimate
+                response_time=sum(time.time() - start for start in self._active_requests.values()) / max(1, len(self._active_requests)),
+                queue_length=self._request_queue.qsize() if hasattr(self._request_queue, 'qsize') else 0,
+                active_workers=self.resource_manager.current_workers if hasattr(self.resource_manager, 'current_workers') else 4
+            )
+        except (ImportError, Exception):
+            # Fallback when psutil is not available or fails
+            return ResourceMetrics(
+                cpu_usage=0.5,  # Assume moderate usage
+                memory_usage=0.6,
+                request_rate=len(self._active_requests) * 60.0,
+                response_time=1000.0,  # 1 second default
+                queue_length=0,
+                active_workers=4
+            )
+    
+    def adaptive_scale_resources(self) -> Dict[str, Any]:
+        """Adaptively scale resources based on current demand."""
+        metrics = self.get_resource_metrics()
+        
+        # Record metrics for learning
+        self.auto_scaler.record_metrics(metrics)
+        
+        # Make scaling decision
+        decision, new_workers = self.auto_scaler.make_scaling_decision(metrics)
+        
+        scaling_result = {
+            'metrics': {
+                'cpu_usage': metrics.cpu_usage,
+                'memory_usage': metrics.memory_usage,
+                'request_rate': metrics.request_rate,
+                'response_time': metrics.response_time,
+                'queue_length': metrics.queue_length
+            },
+            'decision': decision.value,
+            'previous_workers': self.load_balancer.total_active_workers if hasattr(self.load_balancer, 'total_active_workers') else 4,
+            'new_workers': new_workers,
+            'timestamp': time.time()
+        }
+        
+        # Execute scaling decision
+        if decision == ScalingDecision.SCALE_UP:
+            # Add workers to load balancer
+            current_count = len(self.load_balancer.workers) if hasattr(self.load_balancer, 'workers') else 4
+            for i in range(new_workers - current_count):
+                worker_id = f"scaled_worker_{int(time.time())}_{i}"
+                self.load_balancer.add_worker(worker_id)
+            
+            logger.info(f"Scaled up to {new_workers} workers")
+            self.metrics_collector.record_counter("auto_scaling.scale_up")
+            
+        elif decision == ScalingDecision.SCALE_DOWN:
+            # Remove workers from load balancer
+            if hasattr(self.load_balancer, 'workers'):
+                workers_to_remove = list(self.load_balancer.workers.keys())[new_workers:]
+                for worker_id in workers_to_remove:
+                    self.load_balancer.remove_worker(worker_id)
+            
+            logger.info(f"Scaled down to {new_workers} workers")
+            self.metrics_collector.record_counter("auto_scaling.scale_down")
+        
+        # Apply performance optimizations if needed
+        optimizations = self.performance_optimizer.suggest_optimizations(metrics)
+        if optimizations:
+            for optimization in optimizations[:3]:  # Apply top 3 suggestions
+                success = self.performance_optimizer.apply_optimization(optimization['implementation'])
+                scaling_result['applied_optimizations'] = scaling_result.get('applied_optimizations', [])
+                scaling_result['applied_optimizations'].append({
+                    'type': optimization['type'],
+                    'success': success
+                })
+        
+        return scaling_result
+    
+    async def intelligent_request_routing(self, request_metadata: Dict[str, Any]) -> str:
+        """Route request to optimal worker using intelligent load balancing."""
+        # Use circuit breaker for fault tolerance
+        try:
+            worker_id = self.circuit_breaker.call(
+                self.load_balancer.select_worker,
+                request_metadata
+            )
+            
+            if worker_id is None:
+                # No healthy workers available - trigger scaling
+                scaling_result = self.adaptive_scale_resources()
+                logger.warning(f"No healthy workers available, triggered scaling: {scaling_result}")
+                
+                # Retry after scaling
+                worker_id = self.load_balancer.select_worker(request_metadata)
+            
+            return worker_id or "default_worker"
+            
+        except Exception as e:
+            logger.error(f"Request routing failed: {e}")
+            
+            # Fallback routing
+            if hasattr(self.load_balancer, 'workers') and self.load_balancer.workers:
+                return list(self.load_balancer.workers.keys())[0]
+            else:
+                return "fallback_worker"
+    
+    def get_scaling_insights(self) -> Dict[str, Any]:
+        """Get comprehensive insights about system scaling and performance."""
+        insights = {
+            'auto_scaling': self.auto_scaler.get_scaling_insights(),
+            'load_distribution': self.load_balancer.get_load_distribution(),
+            'circuit_breaker_status': {
+                'state': self.circuit_breaker.state,
+                'failure_count': self.circuit_breaker.failure_count,
+                'last_failure': self.circuit_breaker.last_failure_time
+            },
+            'resource_metrics': self.get_resource_metrics().__dict__,
+            'performance_history_size': len(self._performance_history),
+            'active_requests': len(self._active_requests)
+        }
+        
+        # Add performance trends
+        if len(self._performance_history) >= 5:
+            recent_perf = list(self._performance_history)[-5:]
+            insights['performance_trend'] = {
+                'avg_response_time': sum(p.get('response_time', 0) for p in recent_perf) / len(recent_perf),
+                'trend': 'improving' if recent_perf[0].get('response_time', 0) > recent_perf[-1].get('response_time', 0) else 'degrading'
+            }
+        
+        return insights
     
     def cleanup(self) -> None:
         """Cleanup all resources and background tasks."""

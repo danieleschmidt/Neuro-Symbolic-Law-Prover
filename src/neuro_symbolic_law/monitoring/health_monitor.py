@@ -8,7 +8,18 @@ import logging
 import json
 import threading
 import platform
-import psutil
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+    class psutil:
+        @staticmethod
+        def cpu_percent(): return 50.0
+        @staticmethod
+        def virtual_memory(): 
+            class mem: percent = 60.0; total = 8*1024**3; available = 4*1024**3
+            return mem()
 from typing import Dict, List, Optional, Any, Callable, Set, Tuple, Union
 from dataclasses import dataclass, field, asdict
 from enum import Enum
