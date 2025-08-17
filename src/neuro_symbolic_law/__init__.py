@@ -4,10 +4,10 @@ Neuro-Symbolic Law Prover
 Combines Graph Neural Networks with Z3 SMT solving to automatically prove 
 regulatory compliance and identify counter-examples in legal contracts.
 
-Generation 4: Advanced AI research framework with autonomous learning.
+Generation 5: Autonomous Evolution with advanced research capabilities.
 """
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 __author__ = "Daniel Schmidt"
 __email__ = "daniel@terragonlabs.ai"
 
@@ -31,6 +31,14 @@ try:
 except ImportError:
     ADVANCED_FEATURES_AVAILABLE = False
 
+# Generation 5: Autonomous Evolution features
+try:
+    from .research.federated_learning import create_federated_node, get_global_federated_coordinator
+    from .research.causal_reasoning import get_causal_inference_engine
+    GENERATION_5_AVAILABLE = True
+except ImportError:
+    GENERATION_5_AVAILABLE = False
+
 __all__ = [
     "LegalProver",
     "ContractParser", 
@@ -47,4 +55,11 @@ if ADVANCED_FEATURES_AVAILABLE:
     __all__.extend([
         "get_autonomous_learning_engine",
         "get_quantum_legal_optimizer"
+    ])
+
+if GENERATION_5_AVAILABLE:
+    __all__.extend([
+        "create_federated_node",
+        "get_global_federated_coordinator", 
+        "get_causal_inference_engine"
     ])
