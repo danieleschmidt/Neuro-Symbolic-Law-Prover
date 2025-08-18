@@ -4,10 +4,10 @@ Neuro-Symbolic Law Prover
 Combines Graph Neural Networks with Z3 SMT solving to automatically prove 
 regulatory compliance and identify counter-examples in legal contracts.
 
-Generation 5: Autonomous Evolution with advanced research capabilities.
+Generation 6: Transcendent AI with Multi-Modal, Blockchain & AGI capabilities.
 """
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 __author__ = "Daniel Schmidt"
 __email__ = "daniel@terragonlabs.ai"
 
@@ -39,6 +39,15 @@ try:
 except ImportError:
     GENERATION_5_AVAILABLE = False
 
+# Generation 6: Transcendent AI features
+try:
+    from .multimodal.vision_analyzer import LegalVisionAnalyzer, DocumentImageProcessor
+    from .blockchain.legal_blockchain import LegalBlockchainManager, BlockchainVerifier
+    from .agi.agi_legal_reasoner import AGILegalReasoner, EmergentReasoningEngine
+    GENERATION_6_AVAILABLE = True
+except ImportError:
+    GENERATION_6_AVAILABLE = False
+
 __all__ = [
     "LegalProver",
     "ContractParser", 
@@ -62,4 +71,14 @@ if GENERATION_5_AVAILABLE:
         "create_federated_node",
         "get_global_federated_coordinator", 
         "get_causal_inference_engine"
+    ])
+
+if GENERATION_6_AVAILABLE:
+    __all__.extend([
+        "LegalVisionAnalyzer",
+        "DocumentImageProcessor",
+        "LegalBlockchainManager", 
+        "BlockchainVerifier",
+        "AGILegalReasoner",
+        "EmergentReasoningEngine"
     ])
