@@ -1,0 +1,351 @@
+# Docker Compose for Neuro-Symbolic Legal Reasoning System
+# Production-ready multi-service deployment
+
+version: '3.8'
+
+services:
+  # Main NSL Service
+  nsl-api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        BUILD_VERSION: "${NSL_VERSION:-latest}"
+        BUILD_DATE: "${BUILD_DATE}"
+        VCS_REF: "${VCS_REF}"
+    image: neuro-symbolic-law:${NSL_VERSION:-latest}
+    container_name: nsl-api
+    restart: unless-stopped
+    ports:
+      - "${NSL_API_PORT:-8000}:8000"
+      - "${NSL_METRICS_PORT:-9090}:9090"
+    environment:
+      # Core Configuration
+      NSL_ENV: production
+      NSL_WORKERS: "${NSL_WORKERS:-8}"
+      NSL_MAX_WORKERS: "${NSL_MAX_WORKERS:-32}"
+      NSL_BIND_HOST: 0.0.0.0
+      NSL_BIND_PORT: 8000
+      NSL_METRICS_PORT: 9090
+      
+      # Cache Configuration
+      NSL_CACHE_SIZE: "${NSL_CACHE_SIZE:-10000}"
+      NSL_MAX_CACHE_SIZE: "${NSL_MAX_CACHE_SIZE:-100000}"
+      NSL_ENABLE_ADAPTIVE_CACHE: "true"
+      NSL_REDIS_URLS: "redis://redis-1:6379,redis://redis-2:6379,redis://redis-3:6379"
+      
+      # Performance Configuration
+      NSL_ENABLE_AUTO_SCALING: "true"
+      NSL_ENABLE_CONCURRENT: "true"
+      NSL_VERIFICATION_TIMEOUT: 300
+      NSL_MEMORY_THRESHOLD: 0.8
+      
+      # Monitoring Configuration
+      NSL_ENABLE_MONITORING: "true"
+      NSL_LOG_LEVEL: "${NSL_LOG_LEVEL:-INFO}"
+      NSL_METRICS_RETENTION_HOURS: 168
+      
+      # Security Configuration
+      NSL_ENABLE_INPUT_VALIDATION: "true"
+      NSL_ENABLE_RATE_LIMITING: "true"
+      NSL_MAX_REQUESTS_PER_MINUTE: 1000
+    volumes:
+      - nsl-logs:/app/logs
+      - nsl-data:/app/data
+      - nsl-cache:/app/cache
+      - ./config:/app/config:ro
+    networks:
+      - nsl-network
+    depends_on:
+      - redis-1
+      - redis-2
+      - redis-3
+    healthcheck:
+      test: ["CMD", "python", "healthcheck.py"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: '2.0'
+        reservations:
+          memory: 2G
+          cpus: '1.0'
+
+  # NSL Worker Processes
+  nsl-worker-1:
+    image: neuro-symbolic-law:${NSL_VERSION:-latest}
+    container_name: nsl-worker-1
+    restart: unless-stopped
+    command: ["worker"]
+    environment:
+      NSL_ENV: production
+      NSL_WORKER_ID: worker-1
+      NSL_REDIS_URLS: "redis://redis-1:6379,redis://redis-2:6379,redis://redis-3:6379"
+      NSL_LOG_LEVEL: "${NSL_LOG_LEVEL:-INFO}"
+    volumes:
+      - nsl-logs:/app/logs
+      - nsl-data:/app/data
+      - nsl-cache:/app/cache
+    networks:
+      - nsl-network
+    depends_on:
+      - redis-1
+      - redis-2
+      - redis-3
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+
+  nsl-worker-2:
+    image: neuro-symbolic-law:${NSL_VERSION:-latest}
+    container_name: nsl-worker-2
+    restart: unless-stopped
+    command: ["worker"]
+    environment:
+      NSL_ENV: production
+      NSL_WORKER_ID: worker-2
+      NSL_REDIS_URLS: "redis://redis-1:6379,redis://redis-2:6379,redis://redis-3:6379"
+      NSL_LOG_LEVEL: "${NSL_LOG_LEVEL:-INFO}"
+    volumes:
+      - nsl-logs:/app/logs
+      - nsl-data:/app/data
+      - nsl-cache:/app/cache
+    networks:
+      - nsl-network
+    depends_on:
+      - redis-1
+      - redis-2
+      - redis-3
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 1G
+          cpus: '0.5'
+
+  # Redis Cluster for Distributed Caching
+  redis-1:
+    image: redis:7-alpine
+    container_name: nsl-redis-1
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: >
+      redis-server
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+      --appendonly yes
+      --appendfsync everysec
+    volumes:
+      - redis-1-data:/data
+    networks:
+      - nsl-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  redis-2:
+    image: redis:7-alpine
+    container_name: nsl-redis-2
+    restart: unless-stopped
+    ports:
+      - "6380:6379"
+    command: >
+      redis-server
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+      --appendonly yes
+      --appendfsync everysec
+    volumes:
+      - redis-2-data:/data
+    networks:
+      - nsl-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  redis-3:
+    image: redis:7-alpine
+    container_name: nsl-redis-3
+    restart: unless-stopped
+    ports:
+      - "6381:6379"
+    command: >
+      redis-server
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+      --appendonly yes
+      --appendfsync everysec
+    volumes:
+      - redis-3-data:/data
+    networks:
+      - nsl-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Load Balancer (HAProxy)
+  load-balancer:
+    image: haproxy:2.8-alpine
+    container_name: nsl-load-balancer
+    restart: unless-stopped
+    ports:
+      - "${NSL_LB_PORT:-80}:80"
+      - "${NSL_LB_STATS_PORT:-8404}:8404"
+    volumes:
+      - ./config/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    networks:
+      - nsl-network
+    depends_on:
+      - nsl-api
+    healthcheck:
+      test: ["CMD", "haproxy", "-c", "-f", "/usr/local/etc/haproxy/haproxy.cfg"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Monitoring Stack
+  prometheus:
+    image: prom/prometheus:v2.45.0
+    container_name: nsl-prometheus
+    restart: unless-stopped
+    ports:
+      - "${PROMETHEUS_PORT:-9091}:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=7d'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./config/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - nsl-network
+    depends_on:
+      - nsl-api
+
+  grafana:
+    image: grafana/grafana:10.0.0
+    container_name: nsl-grafana
+    restart: unless-stopped
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-nsl-monitor}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./config/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - nsl-network
+    depends_on:
+      - prometheus
+
+  # Log Aggregation (optional)
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.8.0
+    container_name: nsl-elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    networks:
+      - nsl-network
+    ports:
+      - "9200:9200"
+    profiles:
+      - logging
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.8.0
+    container_name: nsl-logstash
+    restart: unless-stopped
+    volumes:
+      - ./config/logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - nsl-logs:/app/logs:ro
+    networks:
+      - nsl-network
+    depends_on:
+      - elasticsearch
+    profiles:
+      - logging
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.8.0
+    container_name: nsl-kibana
+    restart: unless-stopped
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    networks:
+      - nsl-network
+    depends_on:
+      - elasticsearch
+    profiles:
+      - logging
+
+# Named Volumes
+volumes:
+  nsl-logs:
+    driver: local
+  nsl-data:
+    driver: local
+  nsl-cache:
+    driver: local
+  redis-1-data:
+    driver: local
+  redis-2-data:
+    driver: local
+  redis-3-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  elasticsearch-data:
+    driver: local
+    profiles:
+      - logging
+
+# Networks
+networks:
+  nsl-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
