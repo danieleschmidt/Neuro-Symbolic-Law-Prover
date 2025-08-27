@@ -97,8 +97,8 @@ class SecurityLevel(Enum):
     """Security levels for legal data processing."""
     PUBLIC = "public"
     CONFIDENTIAL = "confidential"
-    SECRET = "secret"
-    TOP_SECRET = "top_secret"
+    RESTRICTED = "restricted"
+    HIGHLY_RESTRICTED = "highly_restricted"
 
 
 class AttackType(Enum):
