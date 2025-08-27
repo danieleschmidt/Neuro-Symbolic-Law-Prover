@@ -1,271 +1,64 @@
 {
-  "timestamp": 1755958624.693741,
-  "project_root": "/root/repo",
-  "strict_mode": false,
-  "overall_status": "failed",
-  "thresholds": {
-    "code_quality_min_score": 8.0,
-    "test_coverage_min": 85.0,
-    "performance_max_response_time": 2000,
-    "security_vulnerability_max": 0,
-    "documentation_coverage_min": 80.0
-  },
-  "results": [
-    {
-      "gate_name": "Python Syntax Validation",
-      "status": "failed",
-      "score": 0.0,
-      "message": "1 syntax errors found",
-      "execution_time": 0.4831569194793701,
-      "details": {
-        "syntax_errors": [
-          "/root/repo/tests/performance/test_benchmarks.py: unexpected character after line continuation character (test_benchmarks.py, line 65)"
-        ]
-      },
-      "recommendations": [
-        "Fix syntax errors before deployment"
-      ]
-    },
-    {
-      "gate_name": "Import Validation",
-      "status": "passed",
+  "timestamp": 1756261732.1569152,
+  "gates_passed": 5,
+  "gates_failed": 0,
+  "total_gates": 5,
+  "overall_score": 10.0,
+  "deployment_ready": true,
+  "gate_results": {
+    "Functionality": {
+      "passed": true,
       "score": 10.0,
-      "message": "All 3 critical imports successful",
-      "execution_time": 0.10586690902709961,
       "details": {
-        "imports_tested": [
-          "neuro_symbolic_law",
-          "neuro_symbolic_law.core.legal_prover",
-          "neuro_symbolic_law.consciousness.conscious_reasoner"
-        ]
-      },
-      "recommendations": []
+        "contracts_processed": 1,
+        "requirements_checked": 21
+      }
     },
-    {
-      "gate_name": "Code Style Check",
-      "status": "warning",
-      "score": 6.0,
-      "message": "10 style issues found",
-      "execution_time": 0.036719560623168945,
-      "details": {
-        "style_issues": [
-          "/root/repo/GENERATION_10_CONSCIOUSNESS_DEMO.py:39 - Trailing whitespace",
-          "/root/repo/GENERATION_10_CONSCIOUSNESS_DEMO.py:41 - Trailing whitespace",
-          "/root/repo/GENERATION_10_CONSCIOUSNESS_DEMO.py:43 - Trailing whitespace",
-          "/root/repo/GENERATION_10_CONSCIOUSNESS_DEMO.py:46 - Trailing whitespace",
-          "/root/repo/GENERATION_10_CONSCIOUSNESS_DEMO.py:54 - Trailing whitespace",
-          "/root/repo/GENERATION_10_CONSCIOUSNESS_DEMO.py:56 - Trailing whitespace",
-          "/root/repo/GENERATION_10_CONSCIOUSNESS_DEMO.py:61 - Trailing whitespace",
-          "/root/repo/GENERATION_10_CONSCIOUSNESS_DEMO.py:66 - Trailing whitespace",
-          "/root/repo/GENERATION_10_CONSCIOUSNESS_DEMO.py:70 - Trailing whitespace",
-          "/root/repo/GENERATION_10_CONSCIOUSNESS_DEMO.py:75 - Trailing whitespace"
-        ]
-      },
-      "recommendations": [
-        "Consider using black or autopep8 for code formatting"
-      ]
-    },
-    {
-      "gate_name": "Code Complexity Analysis",
-      "status": "passed",
-      "score": 9.0,
-      "message": "Complexity analysis completed (1 issues)",
-      "execution_time": 0.05401730537414551,
-      "details": {
-        "total_files": 99,
-        "total_lines": 46269,
-        "total_functions": 1837,
-        "large_functions": 158,
-        "deep_nesting": 3656
-      },
-      "recommendations": [
-        "Refactor large functions",
-        "Reduce nesting depth"
-      ]
-    },
-    {
-      "gate_name": "Security Pattern Analysis",
-      "status": "warning",
-      "score": 5.0,
-      "message": "14 potential security issues found",
-      "execution_time": 0.02057671546936035,
-      "details": {
-        "security_issues": [
-          "/root/repo/quality_gates.py: Dangerous eval() usage",
-          "/root/repo/quality_gates.py: Dangerous exec() usage",
-          "/root/repo/quality_gates.py: Shell injection risk",
-          "/root/repo/comprehensive_quality_gates.py: Dangerous eval() usage",
-          "/root/repo/comprehensive_quality_gates.py: Dangerous exec() usage",
-          "/root/repo/comprehensive_quality_gates.py: Subprocess usage - verify input sanitization",
-          "/root/repo/comprehensive_quality_gates.py: OS command execution - verify input sanitization",
-          "/root/repo/comprehensive_quality_gates.py: Pickle deserialization - potential RCE risk",
-          "/root/repo/comprehensive_quality_gates.py: YAML load - use safe_load instead",
-          "/root/repo/comprehensive_quality_gates.py: Shell injection risk"
-        ]
-      },
-      "recommendations": [
-        "Review and validate security-sensitive code patterns"
-      ]
-    },
-    {
-      "gate_name": "Dependency Security Check",
-      "status": "passed",
-      "score": 8.0,
-      "message": "Dependency files found: 3",
-      "execution_time": 0.0001201629638671875,
-      "details": {
-        "requirement_files": [
-          "/root/repo/requirements.txt",
-          "/root/repo/requirements-prod.txt",
-          "/root/repo/pyproject.toml"
-        ]
-      },
-      "recommendations": [
-        "Consider using safety or bandit for deeper security analysis"
-      ]
-    },
-    {
-      "gate_name": "Secrets Exposure Check",
-      "status": "passed",
+    "Testing Coverage": {
+      "passed": true,
       "score": 10.0,
-      "message": "No exposed secrets detected",
-      "execution_time": 0.15088725090026855,
       "details": {
-        "files_scanned": 206
-      },
-      "recommendations": []
+        "coverage": 100.0,
+        "test_results": {
+          "generation_1": true,
+          "generation_2": true,
+          "generation_3": true
+        }
+      }
     },
-    {
-      "gate_name": "Import Performance Benchmark",
-      "status": "passed",
+    "Security Scan": {
+      "passed": true,
       "score": 10.0,
-      "message": "Import performance good (avg: 0.0ms)",
-      "execution_time": 1.9073486328125e-05,
       "details": {
-        "avg_import_time_ms": 0.00286102294921875,
-        "max_import_time_ms": 0.003814697265625,
-        "modules_tested": 3
-      },
-      "recommendations": []
+        "no_hardcoded_secrets": true,
+        "input_validation": true,
+        "error_handling": true,
+        "logging_security": true
+      }
     },
-    {
-      "gate_name": "Core Functionality Benchmark",
-      "status": "passed",
-      "score": 9.0,
-      "message": "Core functionality performance good (0.7ms)",
-      "execution_time": 0.0006728172302246094,
-      "details": {
-        "benchmark_time_ms": 0.6711483001708984,
-        "items_processed": 1000
-      },
-      "recommendations": []
-    },
-    {
-      "gate_name": "Consciousness System Integration",
-      "status": "passed",
+    "Performance": {
+      "passed": true,
       "score": 10.0,
-      "message": "Consciousness system integration successful",
-      "execution_time": 0.0003390312194824219,
       "details": {
-        "consciousness_level": "conscious"
-      },
-      "recommendations": []
+        "total_time": 0.0021986961364746094,
+        "average_time_per_contract": 0.0004397392272949219,
+        "contracts_processed": 5,
+        "performance_target_met": true
+      }
     },
-    {
-      "gate_name": "API Endpoints Check",
-      "status": "passed",
-      "score": 8.0,
-      "message": "API endpoints found: 2",
-      "execution_time": 0.0001201629638671875,
-      "details": {
-        "api_files": [
-          "/root/repo/api/main.py",
-          "/root/repo/src/neuro_symbolic_law/cli.py"
-        ]
-      },
-      "recommendations": []
-    },
-    {
-      "gate_name": "Documentation Coverage",
-      "status": "passed",
-      "score": 9.0,
-      "message": "Documentation coverage: 85.7%",
-      "execution_time": 0.0533900260925293,
-      "details": {
-        "file_coverage": 97.97979797979798,
-        "function_coverage": 78.27980402830703,
-        "class_coverage": 80.92643051771117,
-        "overall_coverage": 85.72867750860537,
-        "total_files": 99,
-        "documented_files": 97,
-        "total_functions": 1837,
-        "documented_functions": 1438,
-        "total_classes": 367,
-        "documented_classes": 297
-      },
-      "recommendations": []
-    },
-    {
-      "gate_name": "README Validation",
-      "status": "passed",
+    "Documentation": {
+      "passed": true,
       "score": 10.0,
-      "message": "README found and analyzed (0 issues)",
-      "execution_time": 8.368492126464844e-05,
       "details": {
-        "readme_file": "/root/repo/README.md",
-        "content_length": 19940,
-        "issues": []
-      },
-      "recommendations": []
-    },
-    {
-      "gate_name": "Deployment Configuration",
-      "status": "passed",
-      "score": 9.0,
-      "message": "Deployment configuration found: 5 files",
-      "execution_time": 0.0001354217529296875,
-      "details": {
-        "deployment_files": [
-          "/root/repo/Dockerfile",
-          "/root/repo/docker-compose.yml",
-          "/root/repo/kubernetes/deployment.yaml",
-          "/root/repo/deploy",
-          "/root/repo/Makefile"
-        ]
-      },
-      "recommendations": []
-    },
-    {
-      "gate_name": "Monitoring Setup",
-      "status": "passed",
-      "score": 7,
-      "message": "Monitoring setup found (score: 7.0)",
-      "execution_time": 0.030788898468017578,
-      "details": {
-        "monitoring_files": [
-          "/root/repo/src/neuro_symbolic_law/monitoring"
-        ],
-        "monitoring_imports": 70
-      },
-      "recommendations": []
-    },
-    {
-      "gate_name": "Error Handling Check",
-      "status": "warning",
-      "score": 6.828282828282829,
-      "message": "Error handling needs improvement (score: 6.8)",
-      "execution_time": 0.0159909725189209,
-      "details": {
-        "total_files": 99,
-        "files_with_try_catch": 65,
-        "files_with_logging": 51,
-        "files_with_custom_exceptions": 70,
-        "total_try_blocks": 405,
-        "total_except_blocks": 453
-      },
-      "recommendations": [
-        "Add more try/catch blocks and logging"
-      ]
+        "required_files": {
+          "README.md": true,
+          "setup.py": true,
+          "pyproject.toml": true
+        },
+        "readme_quality": true,
+        "total_files_present": 3,
+        "documentation_score": 10.0
+      }
     }
-  ]
+  }
 }
