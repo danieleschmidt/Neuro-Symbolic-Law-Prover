@@ -337,6 +337,7 @@ class EnhancedLegalProver:
             result.metadata = {
                 "processed_clauses": len(contract.clauses),
                 "verification_timestamp": datetime.now().isoformat(),
+                "verification_method": "enhanced_prover_v2",
                 "verification_methods": {
                     "keyword_matching": True,
                     "neural_parsing": semantic_analysis is not None,

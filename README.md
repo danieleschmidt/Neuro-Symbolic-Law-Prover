@@ -3,47 +3,113 @@
 [![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://python.org)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Z3](https://img.shields.io/badge/Z3-4.12+-purple.svg)](https://github.com/Z3Prover/z3)
-[![Medium](https://img.shields.io/badge/Blog-Medium-black.svg)](https://medium.com/@yourusername)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-red.svg)](https://pytorch.org)
 
-Combines Graph Neural Networks with Z3 SMT solving to automatically prove regulatory compliance and identify counter-examples in legal contracts, focusing on GDPR and AI Act requirements.
+Combines **Graph Neural Networks (GNN)** with the **Z3 SMT solver** to automatically prove
+regulatory compliance and identify counter-examples in legal contracts,
+focusing on **GDPR** and **EU AI Act** requirements.
 
 ## 🌟 Key Features
 
-- **Contract Parsing**: GNN-based extraction of legal clauses and obligations
-- **Formal Verification**: Z3-based proving of compliance properties
-- **Counter-Example Generation**: Automatic discovery of compliance violations
-- **Multi-Regulation**: Supports GDPR, AI Act, CCPA, and custom regulations
-- **Explanation Generation**: Natural language explanations for legal teams
-- **Contract Templates**: Generate compliant contract templates
+- **Legal Entity Graph**: builds a graph from contract text — nodes are parties, data categories,
+  purposes, and obligations; edges encode relationships like _processes_, _transfers_to_, _stores_
+- **GNN Message Passing**: 2-layer mean-aggregation GNN (pure PyTorch, no PyG required)
+  produces dense embeddings for each graph node
+- **Property Extraction**: blended keyword + GNN projection to scalar compliance property
+  scores (consent, retention, security, transfer safeguards, high-risk AI, …)
+- **Z3 Formal Verification**: encodes GDPR Art. 6/9/32/46 and EU AI Act Art. 6/13/14
+  as SMT formulas; proves satisfiability and generates counter-examples for violations
+- **Multi-Regulation**: GDPR, EU AI Act, CCPA, and custom regulations
+- **Demo ready**: `python demo.py` runs the full pipeline end-to-end
+
+## 🏗️ Architecture
+
+```
+Contract Text
+      │
+      ▼
+ContractParser (rule-based + NLP)
+      │
+      ▼
+LegalEntityGraph  ←── nodes: parties, data, purposes, obligations
+      │                edges: processes, transfers, stores, oversees
+      ▼
+LegalGNN  ←── 2-layer mean-aggregation message passing (pure PyTorch)
+      │
+      ▼
+GNNPropertyExtractor  ←── sigmoid projection → [0,1] compliance scores
+      │                    blended with keyword-based evidence
+      ▼
+Z3ComplianceVerifier  ←── encodes rules as SMT formulas
+      │                    e.g. Implies(is_personal_data, has_consent)
+      ▼
+ComplianceReport  ←── per-entity: passed rules, violations, counter-examples
+```
 
 ## 🚀 Quick Start
 
 ### Installation
 
 ```bash
-# Basic installation
-pip install neuro-symbolic-law-prover
-
-# With all regulation packs
-pip install neuro-symbolic-law-prover[regulations]
-
-# Development installation
-git clone https://github.com/yourusername/Neuro-Symbolic-Law-Prover.git
+git clone https://github.com/danieleschmidt/Neuro-Symbolic-Law-Prover.git
 cd Neuro-Symbolic-Law-Prover
-pip install -e ".[dev,nlp]"
+pip install z3-solver torch
+pip install -e ".[dev]"
 ```
 
-### Basic Usage
+### Run the Demo
+
+```bash
+# Compliant contract (sample)
+python demo.py
+
+# Non-compliant hand-crafted entities (shows violations + counter-examples)
+python demo.py --entities
+
+# Both scenarios
+python demo.py --both
+
+# Your own contract
+python demo.py --contract path/to/your/contract.txt
+```
+
+### GNN + Z3 Pipeline (Python API)
+
+```python
+from neuro_symbolic_law.parsing.contract_parser import ContractParser
+from neuro_symbolic_law.gnn import LegalEntityGraph, GNNPropertyExtractor
+from neuro_symbolic_law.reasoning.z3_compliance_verifier import Z3ComplianceVerifier
+
+# 1. Parse contract
+parser = ContractParser()
+contract = parser.parse(open("contract.txt").read(), "my_contract")
+
+# 2. Build legal entity graph
+graph = LegalEntityGraph.from_contract(contract)
+
+# 3. Run GNN → extract compliance properties
+extractor = GNNPropertyExtractor()
+entity_props = extractor.extract(graph)
+
+# 4. Verify GDPR + AI Act rules with Z3
+verifier = Z3ComplianceVerifier()
+for report in verifier.verify_all(entity_props):
+    print(report.summary())
+    for violation in report.violations:
+        print(f"  ❌ {violation.rule_id}: {violation.rule_description}")
+        if violation.counter_example:
+            print(f"     Counter-example: {violation.counter_example}")
+```
+
+### Classic Contract-Level Compliance
 
 ```python
 from neuro_symbolic_law import LegalProver, ContractParser
 from neuro_symbolic_law.regulations import GDPR, AIAct
 
-# Initialize system
 prover = LegalProver()
-parser = ContractParser(model='legal-bert-base')
+parser = ContractParser()
 
-# Parse contract
 contract_text = open('data_processing_agreement.txt').read()
 parsed_contract = parser.parse(contract_text)
 

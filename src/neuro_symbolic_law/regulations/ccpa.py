@@ -29,7 +29,8 @@ class CCPA(BaseRegulation):
             description="Consumers have the right to request information about personal information collected",
             article_reference="Civil Code 1798.100(a)",
             requirement_type=RequirementType.MANDATORY,
-            keywords=["right to know", "personal information", "collection", "disclosure"],
+            keywords=["right to know", "personal information", "collection", "disclosure",
+                      "access request", "data subject", "right to access"],
             categories={"consumer_rights", "right_to_know", "disclosure"}
         ))
         
@@ -39,7 +40,8 @@ class CCPA(BaseRegulation):
             description="Consumers have the right to request deletion of personal information",
             article_reference="Civil Code 1798.105(a)",
             requirement_type=RequirementType.MANDATORY,
-            keywords=["right to delete", "deletion", "personal information", "consumer request"],
+            keywords=["right to delete", "deletion", "personal information", "consumer request",
+                      "deleted", "erasure", "data subject", "terminate"],
             categories={"consumer_rights", "deletion", "right_to_delete"}
         ))
         
@@ -99,7 +101,8 @@ class CCPA(BaseRegulation):
             description="Business must inform consumers about personal information collection at time of collection",
             article_reference="Civil Code 1798.130(a)",
             requirement_type=RequirementType.MANDATORY,
-            keywords=["notice at collection", "collection notice", "categories", "purposes"],
+            keywords=["notice at collection", "collection notice", "categories", "purposes",
+                      "personal data", "data processing", "processing purposes", "agreed purposes"],
             categories={"notice", "transparency", "collection_notice"}
         ))
         
@@ -139,7 +142,8 @@ class CCPA(BaseRegulation):
             description="Business must verify consumer identity for requests",
             article_reference="Regulation 7003",
             requirement_type=RequirementType.MANDATORY,
-            keywords=["verification", "identity verification", "consumer requests", "authentication"],
+            keywords=["verification", "identity verification", "consumer requests", "authentication",
+                      "security measures", "access controls", "security", "encryption"],
             categories={"verification", "identity", "security"}
         ))
         
@@ -149,7 +153,8 @@ class CCPA(BaseRegulation):
             description="Business must respond to consumer requests within 45 days",
             article_reference="Regulation 7001",
             requirement_type=RequirementType.MANDATORY,
-            keywords=["response time", "45 days", "consumer requests", "timeframe"],
+            keywords=["response time", "45 days", "consumer requests", "timeframe",
+                      "30 days", "days", "within", "respond", "processed within"],
             categories={"response_time", "consumer_service"}
         ))
         
@@ -189,6 +194,29 @@ class CCPA(BaseRegulation):
             description="Business must have contractual restrictions on third-party use",
             article_reference="Civil Code 1798.115(c)",
             requirement_type=RequirementType.MANDATORY,
-            keywords=["third party", "contractual restrictions", "service provider", "contractor"],
+            keywords=["third party", "contractual restrictions", "service provider", "contractor",
+                      "sub-processor", "sub-processors", "international transfers", "contractual clauses"],
             categories={"third_party_agreements", "contractual_requirements"}
+        ))
+        
+        # Data breach notification
+        self.add_requirement(ComplianceRequirement(
+            id="CCPA-1798.150",
+            description="Business must notify consumers of data breaches involving personal information",
+            article_reference="Civil Code 1798.150",
+            requirement_type=RequirementType.MANDATORY,
+            keywords=["data breach", "breach notification", "security incident", "24 hours", "72 hours",
+                      "reported", "incident", "supervisory authorities", "affected data subjects"],
+            categories={"breach_notification", "security", "consumer_notification"}
+        ))
+        
+        # Data security requirements
+        self.add_requirement(ComplianceRequirement(
+            id="CCPA-1798.81.5",
+            description="Business must implement reasonable security measures for personal information",
+            article_reference="Civil Code 1798.81.5",
+            requirement_type=RequirementType.MANDATORY,
+            keywords=["reasonable security", "security measures", "encryption", "technical measures",
+                      "organizational measures", "security assessments", "penetration testing"],
+            categories={"security", "technical_safeguards"}
         ))

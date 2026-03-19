@@ -108,8 +108,8 @@ class ContractParser:
         ]
         
         self.party_patterns = [
-            r'(?:Company|Corporation|Inc\.|LLC|Ltd\.|Party|Client|Vendor|Provider|Contractor|Service Provider)(?:\s+[A-Z][a-zA-Z\s]+)?',
-            r'"([^"]+)"(?:\s+\([^)]+\))?',  # Quoted names
+            r'"([^"]+)"(?:\s+\([^)]+\))?',  # Quoted names like "ACME Corp"
+            r'([A-Z][a-zA-Z]+(?:\s+[A-Z][a-zA-Z]+)*\s+(?:Corp\.?|Inc\.?|LLC|Ltd\.?|Corporation))',  # "ACME Corp" style
         ]
         
         # Common legal categories
@@ -200,26 +200,31 @@ class ContractParser:
                     entity_type=self._infer_entity_type(party_name)
                 ))
         
-        # Remove duplicates
-        seen = set()
-        unique_parties = []
-        for party in parties:
-            if party.name not in seen and len(party.name) > 2:
-                seen.add(party.name)
-                unique_parties.append(party)
-        
-        # If no parties found, create default ones from common patterns
-        if not unique_parties and any(word in text.lower() for word in ['agreement', 'contract', 'between']):
-            # Try to extract from "between X and Y" patterns
-            between_pattern = r'between\s+([^,\n]+?)\s+and\s+([^,\n.]+)'
+        # Also extract from "between X and Y" patterns
+        if any(word in text.lower() for word in ['agreement', 'contract', 'between']):
+            between_pattern = r'between\s+([A-Z][^,\n]+?)\s+and\s+([A-Z][^,\n.]+)'
             between_match = re.search(between_pattern, text, re.IGNORECASE)
             if between_match:
                 party1 = between_match.group(1).strip()
                 party2 = between_match.group(2).strip()
-                unique_parties.extend([
+                parties.extend([
                     ContractParty(name=party1, role="party"),
                     ContractParty(name=party2, role="party")
                 ])
+        
+        # Remove duplicates (prefer shorter, cleaner names)
+        parties.sort(key=lambda p: len(p.name))
+        seen = set()
+        unique_parties = []
+        for party in parties:
+            name = party.name.strip()
+            if len(name) < 3:
+                continue
+            # Skip if this name is a superstring of an already-seen name
+            is_dup = any(seen_name in name or name in seen_name for seen_name in seen)
+            if not is_dup:
+                seen.add(name)
+                unique_parties.append(party)
         
         return unique_parties[:10]  # Limit to reasonable number
     
